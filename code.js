@@ -70,6 +70,7 @@ function render() {
 
 		tees[i].pos.set(tees[i].pos.x+tees[i].dir.x*tees[i].velocity, tees[i].pos.y+tees[i].dir.y*tees[i].velocity);
 		tees[i].obj.pos.copy(tees[i].pos);
+		tees[i].obj.dir.copy(tees[i].dir);
 		tees[i].obj.tick();
 
 		// rotate walk direction
