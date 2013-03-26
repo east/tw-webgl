@@ -15,9 +15,13 @@ var orthsize = 1000.0
 var camera = new THREE.OrthographicCamera(0, orthsize*aspect, 0, orthsize, 1, 1000 );
 camera.position.z = 1;
 var renderer = new THREE.WebGLRenderer();
+var stats = new Stats();
+
+stats.setMode(1);
 
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
+document.body.appendChild(stats.domElement);
 
 // TESTING: render some tee's
 var curSkin = 0;
@@ -35,7 +39,7 @@ skins.push(THREE.ImageUtils.loadTexture("pinky.png"));
 
 tees = []
 
-var numTees = 50
+var numTees = 100
 for (var i = 0; i < numTees; i++)
 {
 	tees.push({
@@ -59,6 +63,8 @@ for (var i = 0; i < numTees; i++)
 	tees[i].obj.sceneAdd(scene);
 
 function render() {
+	stats.begin();
+
 	// tick tees
 	for (var i = 0; i < numTees; i++)
 	{
@@ -81,6 +87,7 @@ function render() {
 
 	requestAnimationFrame(render);
 	renderer.render(scene, camera)
+	stats.end();
 }
 
 render();
