@@ -43,7 +43,7 @@ skins.push(THREE.ImageUtils.loadTexture("pinky.png"));
 
 tees = []
 
-var numTees = 100
+var numTees = 40
 for (var i = 0; i < numTees; i++)
 {
 	tees.push({

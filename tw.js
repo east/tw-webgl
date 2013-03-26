@@ -1,6 +1,7 @@
 var tw = {
-	// Spriteset's
+	// Sprites
 	//[xgrid, ygrid, wgrid, hgrid, numgrids_w, numgrids_h]
+	// Skin
 	SPRITE_TEE_BODY: [0, 0, 3, 3, 8, 4],
 	SPRITE_TEE_BODY_OUTLINE: [3, 0, 3, 3, 8, 4],
 	SPRITE_TEE_HAND: [6, 0, 1, 1, 8, 4],
@@ -10,6 +11,21 @@ var tw = {
 	SPRITE_TEE_EYE_PAIN: [4, 3, 1, 1, 8, 4],
 	SPRITE_TEE_FOOT: [6, 1, 2, 1, 8, 4],
 	SPRITE_TEE_FOOT_OUTLINE: [6, 2, 2, 1, 8, 4],
+	// Game
+	SPRITE_WEAPON_GUN_BODY: [2, 4, 4, 2, 32, 16],
+	SPRITE_WEAPON_SHOTGUN_BODY: [2, 6, 8, 2, 32, 16],
+	SPRITE_WEAPON_GRENADE_BODY: [2, 8, 7, 2, 32, 16],
+	SPRITE_WEAPON_HAMMER_BODY: [2, 1, 4, 3, 32, 16],
+	SPRITE_WEAPON_NINJA_BODY: [2, 10, 8, 2, 32, 16],
+	SPRITE_WEAPON_RIFLE_BODY: [2, 12, 7, 3, 32, 16],
+
+	//
+	WEAPON_HAMMER: 0,
+	WEAPON_GUN: 1,
+	WEAPON_SHOTGUN: 2,
+	WEAPON_GRENADE: 3,
+	WEAPON_RIFLE: 4,
+	WEAPON_NINJA: 5,
 
 	// animation sequences
 	// [time, x, y, angle]
@@ -119,8 +135,8 @@ tw.SpriteGeo = function(width, height, uvs, yflip) {
 		vx2 = uvs[0]*1/uvs[4] + uvs[2]*1/uvs[4];
 	}
 
-	var vy1 = ((4-(uvs[1]+uvs[3]))*1/uvs[5]);
-	var vy2 = 1 - uvs[1]*1/uvs[5];;
+	var vy1 = ((uvs[5]-(uvs[1]+uvs[3]))*1/uvs[5]);
+	var vy2 = 1 - uvs[1]/uvs[5];
 
 	this.faceVertexUvs[0].push([
 		new THREE.Vector2(vx1, vy1),
@@ -214,14 +230,17 @@ tw.AnimState.prototype.add = function(anim, time, amount) {
 // temporary animation state for preventing creating objects locally
 tw.tmpAnim = new tw.AnimState();
 
-tw.TeeObj = function(skinTexture) {
+tw.TeeObj = function(skinTexture, gameTexture) {
 	this.dir = new THREE.Vector2(0, 1);
 	this.pos = new THREE.Vector2(0, 0);
 	this.skinTexture = skinTexture;
+	this.gameTexture = gameTexture;
 	this.objs = []
 	this.size = 64
+	this.weapon = tw.WEAPON_GUN;
 
 	var material = new THREE.MeshBasicMaterial({ map: this.skinTexture, transparent: true });
+	var gameMat = new THREE.MeshBasicMaterial({ map: this.gameTexture, transparent: true });
 	var sprite;
 
 	this.bodyPos = new THREE.Vector2(0, 0);
@@ -230,7 +249,7 @@ tw.TeeObj = function(skinTexture) {
 	// animation state
 	this.anim = new tw.AnimState();
 
-	// The mesh objects have to be created in a specific order for correct overlapping
+	// The mesh objects have to be created in a specific order for correct overlapping	
 	// front foot
 	sprite = new tw.SpriteGeo(1, 0.5, tw.SPRITE_TEE_FOOT, true);
 	this.mesh_frontFoot = new THREE.Mesh(sprite, material);
