@@ -21,6 +21,10 @@ stats.setMode(1);
 
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
+
+stats.domElement.style.position = "absolute";
+stats.domElement.style.left = "0px";
+stats.domElement.style.top = "0px";
 document.body.appendChild(stats.domElement);
 
 // TESTING: render some tee's
