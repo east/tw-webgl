@@ -43,7 +43,7 @@ skins.push(THREE.ImageUtils.loadTexture("pinky.png"));
 
 tees = []
 
-var numTees = 40
+var numTees = 0
 for (var i = 0; i < numTees; i++)
 {
 	tees.push({
@@ -65,6 +65,15 @@ for (var i = 0; i < numTees; i++)
 // add tee's to scene
 for (var i = 0; i < numTees; i++)
 	tees[i].obj.sceneAdd(scene);
+
+// testing
+var layer = new tw.MapLayerGeo(2, 2);
+var layer_mat = new THREE.MeshBasicMaterial({ map: THREE.ImageUtils.loadTexture("grass_main.png"), transparent: true });
+
+var layer_mesh = new THREE.Mesh(layer, layer_mat);
+layer_mesh.position.set(500, 500, 0);
+
+scene.add(layer_mesh);
 
 function render() {
 	stats.begin();

@@ -146,6 +146,71 @@ tw.SpriteGeo = function(width, height, uvs, yflip) {
 	]);
 }
 
+tw.MapLayerGeo = function(width, height) {
+	THREE.Geometry.call(this);
+	
+	this.width = width;
+	this.height = height;
+
+	var x = 128;
+	var y = 128;
+	var xpos = 0;
+	// add plane vertices
+	this.vertices.push(new THREE.Vector3(-x+xpos, y));
+	this.vertices.push(new THREE.Vector3(x+xpos, y));
+	this.vertices.push(new THREE.Vector3(x+xpos, -y));
+	this.vertices.push(new THREE.Vector3(-x+xpos, -y));
+	xpos += 2*x;
+	
+	this.vertices.push(new THREE.Vector3(-x+xpos, y));
+	this.vertices.push(new THREE.Vector3(x+xpos, y));
+	this.vertices.push(new THREE.Vector3(x+xpos, -y));
+	this.vertices.push(new THREE.Vector3(-x+xpos, -y));
+
+	var index = 18;
+
+	var cx = 1/16 * (index%16);
+	var cx1 = cx + 1/16;
+	var cy = 1/16 * Math.round(index/16);
+	var cy1 = cy + 1/16;
+	
+
+	var vx1 = cx;
+	var vx2 = cx1;
+	var vy1 = 1 - cy;
+	var vy2 = 1 - cy1;
+
+	console.log(cx, cx1)
+
+	this.faceVertexUvs[0].push([
+		new THREE.Vector2(vx1, vy2),
+		new THREE.Vector2(vx2, vy2),
+		new THREE.Vector2(vx2, vy1),
+		new THREE.Vector2(vx1, vy1)
+	]);
+
+	this.faceVertexUvs[0].push([
+		new THREE.Vector2(vx1, vy2),
+		new THREE.Vector2(vx2, vy2),
+		new THREE.Vector2(vx2, vy1),
+		new THREE.Vector2(vx1, vy1)
+	]);
+
+	var a = 0;
+	var b = 1;
+	var c = 2;
+	var d = 3;
+
+	for (i = 0; i < 2; i++)
+	{
+		
+		var face = new THREE.Face4(a+i*4, b+i*4, c+i*4, d+i*4);
+		var normal = new THREE.Vector3(0, 0, 1);
+		face.vertexNormals.push(normal.clone(), normal.clone(), normal.clone(), normal.clone());
+		this.faces.push(face);
+	}
+}
+
 tw.mix = function(a, b, amount) {
 	return a + (b-a)*amount;
 }
@@ -345,3 +410,4 @@ tw.TeeObj.prototype.sceneRem = function(scene) {
 }
 
 tw.SpriteGeo.prototype = Object.create(THREE.Geometry.prototype);
+tw.MapLayerGeo.prototype = Object.create(THREE.Geometry.prototype);
