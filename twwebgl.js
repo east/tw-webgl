@@ -58,42 +58,51 @@ tw.init = function() {
 
 	tw.gl.clearColor(0.0, 0.1, 1.0, 1.0);
 
-	tw.quadv = tw.gl.createBuffer();
-	tw.quadv_ind = tw.gl.createBuffer();
-	tw.tex_coord = tw.gl.createBuffer();
+	// Mapscreen
+	tw.screenSize = [1000, 1000];
+	tw.curScreenSize = [1000, 1000] // Affected by camera zoom
 
-	vertices = [
-		0.0, 0.0, 
-		0.0, 300.0,
-		300.0, 300.0,
-		300.0, 0.0,
-	];
+	// Camera
+	tw.cameraPos = [0.0, 0.0]
+	tw.cameraZoom = 1.0
 
-	texcoords = [
-		0.0, 0.0,
-		0.0, 1.0,
-		1.0, 1.0,
-		1.0, 0.0,
-	];
+	tw.mousePressed = false
+	tw.mouseDownPos = [0.0, 0.0]
+	tw.mouseLastPos = [0.0, 0.0]
+	tw.mouseDownInc = [0.0, 0.0]
 
-	indices = [
-		0, 1, 2,
-		2, 3, 0,
-	];
+	// Mouse events
+	$("#cnvs").mousedown(function(e) {
+		tw.mousePressed = true;
+		tw.mouseDownPos[0] = e.clientX;
+		tw.mouseDownPos[1] = e.clientY;
+		
+		tw.mouseDownInc[0] = 0;
+		tw.mouseDownInc[1] = 0;
+	});
 
-	// load vertices
-	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, tw.quadv);
-	tw.gl.bufferData(tw.gl.ARRAY_BUFFER, new Float32Array(vertices), tw.gl.STATIC_DRAW);
+	$("#cnvs").mouseup(function(e) {
+		tw.mousePressed = false;
+	});
 
-	// load tex coords
-	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, tw.tex_coord);
-	tw.gl.bufferData(tw.gl.ARRAY_BUFFER, new Float32Array(texcoords), tw.gl.STATIC_DRAW);
+	$("#cnvs").mousemove(function(e) {
+		if (tw.mousePressed)
+		{
+			tw.mouseDownInc[0] += tw.mouseLastPos[0]-e.clientX;
+			tw.mouseDownInc[1] += tw.mouseLastPos[1]-e.clientY;
+		}
 
-	// load indices
-	tw.gl.bindBuffer(tw.gl.ELEMENT_ARRAY_BUFFER, tw.quadv_ind);
-	tw.gl.bufferData(tw.gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), tw.gl.STATIC_DRAW);
+		tw.mouseLastPos[0] = e.clientX;
+		tw.mouseLastPos[1] = e.clientY;
+	});
 
-	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, null);
+	$("#cnvs").mousewheel(function(event, delta, deltaX, deltaY) {
+		// Change camera zoom on mosewheel
+		tw.cameraZoom += deltaY*(tw.cameraZoom/10);
+		tw.zoomed = true;
+	});
+
+	tw.zoomed = false
 
 	// LOAD TEXTURE
 	tw.tex = tw.gl.createTexture();
@@ -106,12 +115,7 @@ tw.init = function() {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
 		gl.bindTexture(gl.TEXTURE_2D, null);
-
-		console.log("tex loaded");
 	}
 
 	tw.tex.image.src = "grass_main.png";
@@ -125,8 +129,6 @@ tw.init = function() {
 	// load map
 	for (var i = 0; i < 60*50; i++)
 		tw.mLayer.setTile(i, data.tiles[i], 0);
-
-	tw.mLayer.initBuffers();
 
 	tw.mainLoop();
 }
@@ -177,7 +179,21 @@ tw.buildShader = function(str, type) {
 
 tw.mainLoop = function() {
 	requestAnimFrame(tw.mainLoop);
+
+	// Set mapscreen
+	tw.curScreenSize[0] = tw.screenSize[0] / tw.cameraZoom;
+	tw.curScreenSize[1] = tw.screenSize[1] / tw.cameraZoom;
+	// Move camera
+	tw.cameraPos[0] += tw.mouseDownInc[0]*(tw.curScreenSize[0]/tw.canvas.width);
+	tw.cameraPos[1] += tw.mouseDownInc[1]*(tw.curScreenSize[0]/tw.canvas.height);
+	
+	tw.mouseDownInc[0] = 0;
+	tw.mouseDownInc[1] = 0;
+
 	tw.render();
+
+	// Reset zoomed state
+	tw.zoomed = false;
 }
 
 tw.render = function() {
@@ -192,26 +208,33 @@ tw.render = function() {
 	tw.gl.viewportHeight = tw.canvas.height;
 
 	var aspect = tw.gl.viewportWidth / tw.gl.viewportHeight;
+	tw.screenSize[0] = tw.screenSize[1]*aspect;
 
 	gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
 	gl.clear(gl.COLOR_BUFFER_BIT);
 
 	var prjMat = mat4.create();
-	mat4.ortho(prjMat, 0, 1000*aspect, 1000, 0, 1, -1);
+	mat4.ortho(prjMat, 0, tw.screenSize[0], tw.screenSize[1], 0, 1, -1);
 	var mvMat = mat4.create();
+	
+	// Camera zoom
+	mat4.scale(mvMat, mvMat, [tw.cameraZoom, tw.cameraZoom, 0.0]);
 
-	mat4.translate(mvMat, mvMat, [200.0, 200.0, 0.0]);
-	mat4.scale(mvMat, mvMat, [16.0, 16.0, 0.0]);
+	// camera move
+	mat4.translate(mvMat, mvMat, [tw.curScreenSize[0]/2-tw.cameraPos[0], tw.curScreenSize[1]/2-tw.cameraPos[1], 0.0]);
+	// resize for map
+	mat4.scale(mvMat, mvMat, [tw.mLayer.tileSize, tw.mLayer.tileSize, 0.0]);
 
 	gl.uniformMatrix4fv(tw.stdShader.pMatUni, false, prjMat);
 	gl.uniformMatrix4fv(tw.stdShader.mvMatUni, false, mvMat);
-
-	this.mLayer.render();
 
 	// enable texture
 	gl.activeTexture(gl.TEXTURE0);
 	gl.bindTexture(gl.TEXTURE_2D, tw.tex);
 	gl.uniform1i(tw.stdShader.uSampler, 0);
+	
+	this.mLayer.tick();
+	this.mLayer.render();
 }
 
 tw.MapTile = function(index, flags) {
@@ -223,15 +246,29 @@ tw.MapLayer = function(width, height) {
 	this.width = width;
 	this.height = height;
 	this.tiles = [];
-	this.vertices = [];
-	this.texCoords = [];
-	this.indices = [];
+	this.vertices = new Array(width*height*8);
+	this.vertexFloatArray = new Float32Array(this.vertices.length);
+	this.texCoords = new Array(width*height*8);
+	this.texCoordFloatArray = new Float32Array(this.texCoords.length);
+	this.indices = new Array(width*height*6);
+	this.indexIntArray = new Uint16Array(this.indices.length)
 	this.vertexBuf = undefined;
 	this.texCoordBuf = undefined;
 	this.indexBuf = undefined;
+	this.tileSize = 32;
+	this.needInit = true;
 
 	for(var i = 0; i < width*height; i++)
 		this.tiles.push(new tw.MapTile(0, 0));
+}
+
+tw.MapLayer.prototype.tick = function() {
+	if (this.needInit || tw.zoomed)
+	{
+		this.needInit = false;
+		// Re / initialise buffers
+		this.initBuffers();
+	}
 }
 
 tw.MapLayer.prototype.setTileXY = function(x, y, index, flags) {
@@ -252,9 +289,29 @@ tw.MapLayer.prototype.addTile = function(index, flags) {
 	this.tiles.push(new MapTile(index, flags));
 }
 
+tw.setArray = function(dstArray, offset, newArray) {
+	for (var i = 0; i < newArray.length; i++) {
+		dstArray[offset+i] = newArray[i];
+	}
+}
+
 // Build vertices and init gl buffers
 tw.MapLayer.prototype.initBuffers = function() {
 	var x, y, t;
+
+	// mipmap border correction
+	var tilePixelSize = 1024/32;
+	var finalTileSize = this.tileSize / (tw.curScreenSize[0]) * tw.canvas.width;
+	var finalTilesetScale = finalTileSize / tilePixelSize 
+
+	var texSize = 1024.0
+	var frac = (1.25/texSize)*(1/finalTilesetScale)
+	var nudge = (0.5/texSize)*(1/finalTilesetScale)
+
+	// 
+	var vertices;
+	var indices;
+	var texCoords;
 
 	t = 0;
 	// Vertices and texture coordinates
@@ -262,12 +319,14 @@ tw.MapLayer.prototype.initBuffers = function() {
 	{
 		for (x = 0; x < this.width; x++)
 		{
-			this.vertices.push(
+			vertices = [
 				x, y,
 				x, y+1.0,
 				x+1.0, y+1.0,
 				x+1.0, y
-			);
+			];
+
+			tw.setArray(this.vertices, t*8, vertices);
 
 			var index = this.tiles[t].index;
 			
@@ -279,44 +338,56 @@ tw.MapLayer.prototype.initBuffers = function() {
 			var x1 = x0 + (1024/16)-1;
 			var y1 = y0 + (1024/16)-1;
 
-			x0 = x0 / 1024;
-			x1 = x1 / 1024;
-			y0 = y0 / 1024;
-			y1 = y1 / 1024;
+			x0 = nudge + x0/1024 + frac;
+			x1 = nudge + x1/1024 - frac;
+			y0 = nudge + y0/1024 + frac;
+			y1 = nudge + y1/1024 - frac;
 
-			this.texCoords.push(
+			texCoords = [
 				x0, y0,
 				x0, y1,
 				x1, y1,
 				x1, y0
-		);
+			]
+
+			tw.setArray(this.texCoords, t*8, texCoords);
 
 			t++;
 		}
 	}
 
 	var numQuads = this.width*this.height;
+	t = 0;
 	for (var i = 0; i < numQuads*4; i+=4)
 	{
-		this.indices.push(
+		indices = [
 			i, i+1, i+2,
 			i, i+2, i+3
-		);
+		];
+
+		tw.setArray(this.indices, t*6, indices);
+		t++;
 	}
 
 	// Init gl buffers
-	this.vertexBuf = tw.gl.createBuffer();
-	this.indexBuf = tw.gl.createBuffer();
-	this.texCoordBuf = tw.gl.createBuffer();
+	if (this.vertexBuf == undefined)
+	{
+		this.vertexBuf = tw.gl.createBuffer();
+		this.indexBuf = tw.gl.createBuffer();
+		this.texCoordBuf = tw.gl.createBuffer();
+	}
 
 	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, this.vertexBuf);
-	tw.gl.bufferData(tw.gl.ARRAY_BUFFER, new Float32Array(this.vertices), tw.gl.STATIC_DRAW);
+	this.vertexFloatArray.set(this.vertices);
+	tw.gl.bufferData(tw.gl.ARRAY_BUFFER, this.vertexFloatArray, tw.gl.STATIC_DRAW);
 	
 	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, this.texCoordBuf);
-	tw.gl.bufferData(tw.gl.ARRAY_BUFFER, new Float32Array(this.texCoords), tw.gl.STATIC_DRAW);
+	this.texCoordFloatArray.set(this.texCoords);
+	tw.gl.bufferData(tw.gl.ARRAY_BUFFER, this.texCoordFloatArray, tw.gl.STATIC_DRAW);
 
 	tw.gl.bindBuffer(tw.gl.ELEMENT_ARRAY_BUFFER, this.indexBuf);
-	tw.gl.bufferData(tw.gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(this.indices), tw.gl.STATIC_DRAW);
+	this.indexIntArray.set(this.indices);
+	tw.gl.bufferData(tw.gl.ELEMENT_ARRAY_BUFFER, this.indexIntArray, tw.gl.STATIC_DRAW);
 }
 
 tw.MapLayer.prototype.render = function() {
