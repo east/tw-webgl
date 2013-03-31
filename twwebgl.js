@@ -120,15 +120,35 @@ tw.init = function() {
 
 	tw.tex.image.src = "grass_main.png";
 
+	tw.tex2 = tw.gl.createTexture();
+	tw.tex2.image = new Image();
+	tw.tex2.image.onload = function() {
+		var gl = tw.gl;
+
+		gl.bindTexture(gl.TEXTURE_2D, tw.tex2);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tw.tex2.image);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+
+		gl.bindTexture(gl.TEXTURE_2D, null);
+	}
+
+	tw.tex2.image.src = "grass_doodads.png";
+
 	// Test load map json
 	data = tw.getJSON("dm1.json");
+	data2 = tw.getJSON("dm1_doodads.json");
 
 	// Test layer
 	tw.mLayer = new tw.MapLayer(60, 50);
+	tw.mLayer2 = new tw.MapLayer(60, 50);
 
 	// load map
 	for (var i = 0; i < 60*50; i++)
+	{
 		tw.mLayer.setTile(i, data.tiles[i], 0);
+		tw.mLayer2.setTile(i, data2.tiles[i], 0);
+	}
 
 	tw.mainLoop();
 }
@@ -223,18 +243,23 @@ tw.render = function() {
 	// camera move
 	mat4.translate(mvMat, mvMat, [tw.curScreenSize[0]/2-tw.cameraPos[0], tw.curScreenSize[1]/2-tw.cameraPos[1], 0.0]);
 	// resize for map
-	mat4.scale(mvMat, mvMat, [tw.mLayer.tileSize, tw.mLayer.tileSize, 0.0]);
+	mat4.scale(mvMat, mvMat, [32, 32, 0.0]);
 
 	gl.uniformMatrix4fv(tw.stdShader.pMatUni, false, prjMat);
 	gl.uniformMatrix4fv(tw.stdShader.mvMatUni, false, mvMat);
 
 	// enable texture
 	gl.activeTexture(gl.TEXTURE0);
-	gl.bindTexture(gl.TEXTURE_2D, tw.tex);
 	gl.uniform1i(tw.stdShader.uSampler, 0);
-	
+		
 	this.mLayer.tick();
-	this.mLayer.render();
+	this.mLayer2.tick();
+
+	gl.bindTexture(gl.TEXTURE_2D, tw.tex2);
+	this.mLayer2.render(); // render doodads
+	
+	gl.bindTexture(gl.TEXTURE_2D, tw.tex);
+	this.mLayer.render(); // render main tiles
 }
 
 tw.MapTile = function(index, flags) {
@@ -246,12 +271,13 @@ tw.MapLayer = function(width, height) {
 	this.width = width;
 	this.height = height;
 	this.tiles = [];
+	this.renderTile = new Array(width*height);
 	this.vertices = new Array(width*height*8);
 	this.vertexFloatArray = new Float32Array(this.vertices.length);
 	this.texCoords = new Array(width*height*8);
 	this.texCoordFloatArray = new Float32Array(this.texCoords.length);
-	this.indices = new Array(width*height*6);
-	this.indexIntArray = new Uint16Array(this.indices.length)
+	this.indexIntArray = new Uint16Array(width*height*6)
+	this.indices = undefined;
 	this.vertexBuf = undefined;
 	this.texCoordBuf = undefined;
 	this.indexBuf = undefined;
@@ -285,10 +311,6 @@ tw.MapLayer.prototype.setTile = function(i, index, flags) {
 	t.flags = flags;
 }
 
-tw.MapLayer.prototype.addTile = function(index, flags) {
-	this.tiles.push(new MapTile(index, flags));
-}
-
 tw.setArray = function(dstArray, offset, newArray) {
 	for (var i = 0; i < newArray.length; i++) {
 		dstArray[offset+i] = newArray[i];
@@ -314,11 +336,19 @@ tw.MapLayer.prototype.initBuffers = function() {
 	var texCoords;
 
 	t = 0;
+
 	// Vertices and texture coordinates
 	for (y = 0; y < this.height; y++)
 	{
 		for (x = 0; x < this.width; x++)
 		{
+			var index = this.tiles[t].index;
+
+			if (index == 0)
+				this.renderTile[t] = false;
+			else
+				this.renderTile[t] = true;
+
 			vertices = [
 				x, y,
 				x, y+1.0,
@@ -327,11 +357,9 @@ tw.MapLayer.prototype.initBuffers = function() {
 			];
 
 			tw.setArray(this.vertices, t*8, vertices);
-
-			var index = this.tiles[t].index;
 			
 			var tx = index%16;
-			var ty = Math.round(index/16);
+			var ty = Math.floor(index/16);
 			
 			var x0 = tx * (1024/16);
 			var y0 = ty * (1024/16);
@@ -356,19 +384,21 @@ tw.MapLayer.prototype.initBuffers = function() {
 		}
 	}
 
-	var numQuads = this.width*this.height;
+	this.indices = []
 	t = 0;
-	for (var i = 0; i < numQuads*4; i+=4)
+	for (var i = 0; i < this.vertices.length/8*4; i+=4)
 	{
-		indices = [
-			i, i+1, i+2,
-			i, i+2, i+3
-		];
+		if (this.renderTile[t])
+		{
+			this.indices.push(
+				i, i+1, i+2,
+				i, i+2, i+3
+			);
+		}
 
-		tw.setArray(this.indices, t*6, indices);
 		t++;
 	}
-
+	
 	// Init gl buffers
 	if (this.vertexBuf == undefined)
 	{
