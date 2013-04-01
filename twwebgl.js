@@ -1,4 +1,11 @@
-var tw = {}
+var tw = {
+	// Constants
+	// Tile flags
+	TILEFLAG_VFLIP: 1,
+	TILEFLAG_HFLIP: 2,
+	TILEFLAG_OPAQUE: 4,
+	TILEFLAG_ROTATE: 8,
+}
 
 tw.init = function() {
 	tw.canvas = document.getElementById("cnvs");
@@ -104,53 +111,127 @@ tw.init = function() {
 
 	tw.zoomed = false
 
-	// LOAD TEXTURE
-	tw.tex = tw.gl.createTexture();
-	tw.tex.image = new Image();
-	tw.tex.image.onload = function() {
-		var gl = tw.gl;
-
-		gl.bindTexture(gl.TEXTURE_2D, tw.tex);
-		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tw.tex.image);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-
-		gl.bindTexture(gl.TEXTURE_2D, null);
-	}
-
-	tw.tex.image.src = "grass_main.png";
-
-	tw.tex2 = tw.gl.createTexture();
-	tw.tex2.image = new Image();
-	tw.tex2.image.onload = function() {
-		var gl = tw.gl;
-
-		gl.bindTexture(gl.TEXTURE_2D, tw.tex2);
-		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tw.tex2.image);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-
-		gl.bindTexture(gl.TEXTURE_2D, null);
-	}
-
-	tw.tex2.image.src = "grass_doodads.png";
-
 	// Test load map json
-	data = tw.getJSON("dm1.json");
-	data2 = tw.getJSON("dm1_doodads.json");
+	data = tw.getJSON(tw.getParams().map || "dm1.json");
 
-	// Test layer
-	tw.mLayer = new tw.MapLayer(60, 50);
-	tw.mLayer2 = new tw.MapLayer(60, 50);
-
-	// load map
-	for (var i = 0; i < 60*50; i++)
+	if (!data)
 	{
-		tw.mLayer.setTile(i, data.tiles[i], 0);
-		tw.mLayer2.setTile(i, data2.tiles[i], 0);
+		alert("Map not found");
+		return;
 	}
+
+	this.map = new tw.Map(data);
 
 	tw.mainLoop();
+}
+
+tw.getParams = function() {
+	if (location.search === "") return {};
+	var o = {}, nvPairs = location.search.substr(1).replace(/\+/g, " ").split("&");
+	nvPairs.forEach( function (pair) {
+		var e = pair.indexOf('=');
+		var n = decodeURIComponent(e < 0 ? pair : pair.substr(0,e)),
+			v = (e < 0 || e + 1 == pair.length)
+				? null :
+				decodeURIComponent(pair.substr(e + 1,pair.length - e));
+		if (!(n in o))
+			o[n] = v;
+		else if (o[n] instanceof Array)
+			o[n].push(v);
+		else
+			o[n] = [o[n] , v];
+	});
+
+	return o;
+}
+
+// Build tiles from json
+tw.buildTiles = function(data, layerNum) {
+	var tiles = []
+	for (var i = 0; i < data.tiles.length; i++)
+		tiles.push(new tw.MapTile(data.tiles[i], data.tileFlags[i]));
+	
+	return tiles;
+}
+
+tw.Map = function(data) {
+	this.textures = []; // loaded textures
+	this.layers = [];
+
+	for (var g = 0; g < data.groups.length; g++)
+	{
+		for (var l = 0; l < data.groups[g].layers.length; l++)
+		{
+			var dLayer = data.groups[g].layers[l];
+			
+			if (dLayer.tex == "")
+				continue;
+
+			console.log("asd", dLayer.size[0], dLayer.size[1]);
+			this.addLayer(dLayer.size[0], dLayer.size[1], dLayer, dLayer.tex);
+		}
+	}
+}
+
+tw.Map.prototype.addLayer = function(width, height, tiles, texture) {
+	var tex;
+	// Check wheter the texture is loaded
+	for (var i = 0; i < this.textures.length; i++)
+	{
+		if (this.textures[i].fileName == texture)
+			tex = this.textures[i].texId;
+	}
+
+	if (!tex)
+	{
+		// Texture not found, load it
+		tex = tw.loadTexture(texture);
+		this.textures.push({ fileName: texture, texId: tex });
+	}
+
+	var newLayer = new tw.MapLayer(width, height, tw.buildTiles(tiles));
+	newLayer.texId = tex;
+	this.layers.push(newLayer);
+}
+
+tw.Map.prototype.tick = function() {
+	for (var i = 0; i < this.layers.length; i++)
+		this.layers[i].tick();
+}
+
+tw.Map.prototype.render = function() {
+	// Render all maplayers
+	for (var i = 0; i < this.layers.length; i++)
+	{
+		var layer = this.layers[i];
+
+		// bind texture of layer
+		tw.gl.bindTexture(tw.gl.TEXTURE_2D, layer.texId);
+		layer.render();
+	}
+
+	// Unbind texture
+	tw.gl.bindTexture(tw.gl.TEXTURE_2D, null);
+}
+
+tw.loadTexture = function(imgUrl) {
+	// LOAD TEXTURE
+	var tex = tw.gl.createTexture();
+	
+	tex.image = new Image();
+	tex.image.src = imgUrl;
+
+	tex.image.onload = function() {
+		var gl = tw.gl;
+
+		gl.bindTexture(gl.TEXTURE_2D, tex);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tex.image);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+	}
+
+	return tex;
 }
 
 tw.getJSON = function(url) {
@@ -252,14 +333,9 @@ tw.render = function() {
 	gl.activeTexture(gl.TEXTURE0);
 	gl.uniform1i(tw.stdShader.uSampler, 0);
 		
-	this.mLayer.tick();
-	this.mLayer2.tick();
 
-	gl.bindTexture(gl.TEXTURE_2D, tw.tex2);
-	this.mLayer2.render(); // render doodads
-	
-	gl.bindTexture(gl.TEXTURE_2D, tw.tex);
-	this.mLayer.render(); // render main tiles
+	this.map.tick();
+	this.map.render();
 }
 
 tw.MapTile = function(index, flags) {
@@ -267,10 +343,10 @@ tw.MapTile = function(index, flags) {
 	this.flags = flags;
 }
 
-tw.MapLayer = function(width, height) {
+tw.MapLayer = function(width, height, tiles) {
 	this.width = width;
 	this.height = height;
-	this.tiles = [];
+	this.tiles = tiles;
 	this.renderTile = new Array(width*height);
 	this.vertices = new Array(width*height*8);
 	this.vertexFloatArray = new Float32Array(this.vertices.length);
@@ -283,9 +359,6 @@ tw.MapLayer = function(width, height) {
 	this.indexBuf = undefined;
 	this.tileSize = 32;
 	this.needInit = true;
-
-	for(var i = 0; i < width*height; i++)
-		this.tiles.push(new tw.MapTile(0, 0));
 }
 
 tw.MapLayer.prototype.tick = function() {
@@ -361,21 +434,63 @@ tw.MapLayer.prototype.initBuffers = function() {
 			var tx = index%16;
 			var ty = Math.floor(index/16);
 			
-			var x0 = tx * (1024/16);
-			var y0 = ty * (1024/16);
-			var x1 = x0 + (1024/16)-1;
-			var y1 = y0 + (1024/16)-1;
+			var px0 = tx * (1024/16);
+			var py0 = ty * (1024/16);
+			var px1 = px0 + (1024/16)-1;
+			var py1 = py0 + (1024/16)-1;
 
-			x0 = nudge + x0/1024 + frac;
-			x1 = nudge + x1/1024 - frac;
-			y0 = nudge + y0/1024 + frac;
-			y1 = nudge + y1/1024 - frac;
+			var tmp;
+			var x0, x1, x2, x3;
+			var y0, y1, y2, y3;
+			
+			x0 = nudge + px0/1024 + frac;
+			x1 = nudge + px1/1024 - frac;
+			x2 = x1
+			x3 = x0
+
+			y0 = nudge + py0/1024 + frac;
+			y1 = nudge + py1/1024 - frac;
+			y2 = y1;
+			y3 = y0;
+
+			// Handle tile flags
+			if (this.tiles[t].flags & tw.TILEFLAG_HFLIP)
+			{
+				y0 = y2;
+				y2 = y3;
+				y3 = y0;
+				y1 = y2;
+
+			}
+
+			if (this.tiles[t].flags & tw.TILEFLAG_VFLIP)
+			{
+				x0 = x1;
+				x2 = x3;
+				x3 = x0;
+				x1 = x2;					
+			}
+
+			if (this.tiles[t].flags & tw.TILEFLAG_ROTATE)
+			{
+				tmp = y0;
+				y0 = y1;
+				y1 = y2;
+				y2 = y3;
+				y3 = tmp;
+
+				tmp = x0;
+				x0 = x3;
+				x3 = x1;
+				x1 = x2;
+				x2 = tmp;
+			}
 
 			texCoords = [
 				x0, y0,
-				x0, y1,
-				x1, y1,
-				x1, y0
+				x3, y1,
+				x1, y2,
+				x2, y3
 			]
 
 			tw.setArray(this.texCoords, t*8, texCoords);
