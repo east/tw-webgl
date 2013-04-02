@@ -347,18 +347,30 @@ tw.MapLayer = function(width, height, tiles) {
 	this.width = width;
 	this.height = height;
 	this.tiles = tiles;
-	this.renderTile = new Array(width*height);
-	this.vertices = new Array(width*height*8);
+	this.numTiles = this.renderTileNum();
+
+	this.vertices = new Array(this.numTiles*8);
 	this.vertexFloatArray = new Float32Array(this.vertices.length);
-	this.texCoords = new Array(width*height*8);
+	this.texCoords = new Array(this.numTiles*8);
 	this.texCoordFloatArray = new Float32Array(this.texCoords.length);
-	this.indexIntArray = new Uint16Array(width*height*6)
-	this.indices = undefined;
+	this.indexIntArray = new Uint16Array(this.numTiles*6)
+	this.indices = new Array(this.numTiles*6);
 	this.vertexBuf = undefined;
 	this.texCoordBuf = undefined;
 	this.indexBuf = undefined;
 	this.tileSize = 32;
 	this.needInit = true;
+}
+
+// get the number of tiles that will be rendered
+tw.MapLayer.prototype.renderTileNum = function() {
+	var num = 0;
+	for (var i = 0; i < this.tiles.length; i++) {
+		if (this.tiles[i].index != 0)
+			num++;
+	}
+
+	return num;
 }
 
 tw.MapLayer.prototype.tick = function() {
@@ -415,12 +427,12 @@ tw.MapLayer.prototype.initBuffers = function() {
 	{
 		for (x = 0; x < this.width; x++)
 		{
-			var index = this.tiles[t].index;
+			var curTile = this.tiles[y*this.width+x];
+			var index = curTile.index;
 
+			// skip tiles with index 0
 			if (index == 0)
-				this.renderTile[t] = false;
-			else
-				this.renderTile[t] = true;
+				continue;
 
 			vertices = [
 				x, y,
@@ -430,7 +442,9 @@ tw.MapLayer.prototype.initBuffers = function() {
 			];
 
 			tw.setArray(this.vertices, t*8, vertices);
-			
+		
+			// Get subset offsets
+			//TODO: fix border artefacts
 			var tx = index%16;
 			var ty = Math.floor(index/16);
 			
@@ -454,7 +468,7 @@ tw.MapLayer.prototype.initBuffers = function() {
 			y3 = y0;
 
 			// Handle tile flags
-			if (this.tiles[t].flags & tw.TILEFLAG_HFLIP)
+			if (curTile.flags & tw.TILEFLAG_HFLIP)
 			{
 				y0 = y2;
 				y2 = y3;
@@ -463,7 +477,7 @@ tw.MapLayer.prototype.initBuffers = function() {
 
 			}
 
-			if (this.tiles[t].flags & tw.TILEFLAG_VFLIP)
+			if (curTile.flags & tw.TILEFLAG_VFLIP)
 			{
 				x0 = x1;
 				x2 = x3;
@@ -471,7 +485,7 @@ tw.MapLayer.prototype.initBuffers = function() {
 				x1 = x2;					
 			}
 
-			if (this.tiles[t].flags & tw.TILEFLAG_ROTATE)
+			if (curTile.flags & tw.TILEFLAG_ROTATE)
 			{
 				tmp = y0;
 				y0 = y1;
@@ -499,17 +513,13 @@ tw.MapLayer.prototype.initBuffers = function() {
 		}
 	}
 
-	this.indices = []
 	t = 0;
-	for (var i = 0; i < this.vertices.length/8*4; i+=4)
+	for (var i = 0; i < this.numTiles*4; i+=4)
 	{
-		if (this.renderTile[t])
-		{
-			this.indices.push(
-				i, i+1, i+2,
-				i, i+2, i+3
-			);
-		}
+		tw.setArray(this.indices, t*6, [
+			i, i+1, i+2,
+			i, i+2, i+3
+		]);
 
 		t++;
 	}
