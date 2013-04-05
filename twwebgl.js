@@ -59,9 +59,11 @@ tw.init = function() {
 	// Move / projection matrix
 	tw.stdShader.pMatUni = tw.gl.getUniformLocation(tw.stdShader, "uPMatrix");
 	tw.stdShader.mvMatUni = tw.gl.getUniformLocation(tw.stdShader, "uMVMatrix");
-	
 	// Texture sampler
 	tw.stdShader.uSampler = tw.gl.getUniformLocation(tw.stdShader, "uSampler");
+	// Frag color mask
+	tw.stdShader.uColorMask = tw.gl.getUniformLocation(tw.stdShader, "uColorMask");
+	tw.gl.uniform4fv(tw.stdShader.uColorMask, [1.0, 1.0, 1.0, 1.0]); // Reset
 
 	tw.gl.clearColor(0.0, 0.1, 1.0, 1.0);
 
@@ -71,8 +73,9 @@ tw.init = function() {
 	tw.prjMat = mat4.create();
 	tw.mvMat = mat4.create();
 
-	//
+	// Temp objects
 	tw.tmpMat = mat4.create();
+	tw.tmpVec4 = vec4.create();
 
 	// Camera
 	tw.cameraPos = [0.0, 0.0]
@@ -80,6 +83,7 @@ tw.init = function() {
 
 	// Mapscreen
 	tw.mapScreen = vec4.create();
+	tw.worldView = [1000, 1000];
 
 	tw.screenResize();
 
@@ -122,7 +126,7 @@ tw.init = function() {
 	tw.zoomed = false
 
 	// Test load map json
-	data = tw.getJSON(tw.getParams().map || "dm1.json");
+	data = tw.getJSON(tw.getParams().map || "dm1.map.json");
 
 	if (!data)
 	{
@@ -133,6 +137,10 @@ tw.init = function() {
 	this.map = new tw.Map(data);
 
 	tw.mainLoop();
+}
+
+tw.setColorMask = function(rgba) {
+	tw.gl.uniform4fv(tw.stdShader.uColorMask, rgba); // Reset
 }
 
 tw.setMapScreen = function(topLeftX, topLeftY, bottomRightX, bottomRightY) {
@@ -192,7 +200,7 @@ tw.Map = function(data) {
 			if (dLayer.tex == "")
 				continue;
 
-			grp.addLayer(dLayer.size[0], dLayer.size[1], dLayer, dLayer.tex);
+			grp.addLayer(dLayer.size[0], dLayer.size[1], dLayer, dLayer.tex, dLayer.color);
 		}
 
 		this.groups.push(grp);
@@ -208,7 +216,7 @@ tw.Map.Group = function(map, paraX, paraY, offsX, offsY) {
 	this.layers = [];
 }
 
-tw.Map.Group.prototype.addLayer = function(width, height, tiles, texture) {
+tw.Map.Group.prototype.addLayer = function(width, height, tiles, texture, color) {
 	var tex;
 	// Check wheter the texture is loaded
 	for (var i = 0; i < this.map.textures.length; i++)
@@ -224,7 +232,7 @@ tw.Map.Group.prototype.addLayer = function(width, height, tiles, texture) {
 		this.map.textures.push({ fileName: texture, texId: tex });
 	}
 
-	var newLayer = new tw.MapLayer(width, height, tw.buildTiles(tiles), this);
+	var newLayer = new tw.MapLayer(width, height, tw.buildTiles(tiles), color, this);
 	newLayer.texId = tex;
 	this.layers.push(newLayer);
 }
@@ -235,8 +243,8 @@ tw.Map.Group.prototype.tick = function() {
 }
 
 tw.Map.Group.prototype.initMapScreen = function() {
-	var width = 1000*tw.aspect;
-	var height = 1000;
+	var width = tw.worldView[0]*tw.aspect;
+	var height = tw.worldView[1];
 
 	var cx = tw.cameraPos[0]*(this.paraX/100);
 	var cy = tw.cameraPos[1]*(this.paraY/100);
@@ -357,6 +365,10 @@ tw.buildShader = function(str, type) {
 tw.mainLoop = function() {
 	requestAnimFrame(tw.mainLoop);
 
+	// Transform mouse coords to world coords
+	tw.mouseDownInc[0] = tw.mouseDownInc[0]/tw.canvas.width*tw.worldView[0] / tw.cameraZoom;
+	tw.mouseDownInc[1] = tw.mouseDownInc[1]/tw.canvas.height*tw.worldView[1] / tw.cameraZoom;
+
 	// Move camera
 	tw.cameraPos[0] += tw.mouseDownInc[0];
 	tw.cameraPos[1] += tw.mouseDownInc[1];
@@ -411,12 +423,13 @@ tw.MapTile = function(index, flags) {
 	this.flags = flags;
 }
 
-tw.MapLayer = function(width, height, tiles, group) {
+tw.MapLayer = function(width, height, tiles, color, group) {
 	this.width = width;
 	this.height = height;
 	this.tiles = tiles;
 	this.numTiles = this.renderTileNum();
 
+	this.color = new Float32Array([color[0]/255, color[1]/255, color[2]/255, color[3]/255]);
 	this.vertices = new Array(this.numTiles*8);
 	this.vertexFloatArray = new Float32Array(this.vertices.length);
 	this.texCoords = new Array(this.numTiles*8);
@@ -620,7 +633,11 @@ tw.MapLayer.prototype.render = function() {
 	mat4.copy(tw.tmpMat, tw.mvMat);
 	mat4.scale(tw.mvMat, tw.mvMat, [32, 32, 0.0]);
 	tw.setMatUniforms();
-	
+
+	// Set color mask
+	vec4.set(tw.tmpVec4, this.color[0], this.color[1], this.color[2], this.color[3]);
+	tw.setColorMask(tw.tmpVec4);
+
 	// Vertex attribute
 	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, this.vertexBuf);
 	tw.gl.vertexAttribPointer(tw.stdShader.vPosAttr, 2, tw.gl.FLOAT, false, 0, 0);
@@ -655,10 +672,11 @@ tw.fragmentShader = " \
 	\
 	varying vec2 vTexCoord; \
 	uniform sampler2D uSampler; \
+	uniform vec4 uColorMask; \
 	\
 	void main(void) \
 	{ \
-		gl_FragColor = texture2D(uSampler, vec2(vTexCoord.s, vTexCoord.t)); \
+		gl_FragColor = texture2D(uSampler, vec2(vTexCoord.s, vTexCoord.t)) * uColorMask; \
 	} \
 ";
 
