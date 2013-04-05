@@ -65,13 +65,23 @@ tw.init = function() {
 
 	tw.gl.clearColor(0.0, 0.1, 1.0, 1.0);
 
-	// Mapscreen
-	tw.screenSize = [1000, 1000];
-	tw.curScreenSize = [1000, 1000] // Affected by camera zoom
+	tw.aspect = 1;
+
+	// Matrices
+	tw.prjMat = mat4.create();
+	tw.mvMat = mat4.create();
+
+	//
+	tw.tmpMat = mat4.create();
 
 	// Camera
 	tw.cameraPos = [0.0, 0.0]
 	tw.cameraZoom = 1.0
+
+	// Mapscreen
+	tw.mapScreen = vec4.create();
+
+	tw.screenResize();
 
 	tw.mousePressed = false
 	tw.mouseDownPos = [0.0, 0.0]
@@ -125,6 +135,13 @@ tw.init = function() {
 	tw.mainLoop();
 }
 
+tw.setMapScreen = function(topLeftX, topLeftY, bottomRightX, bottomRightY) {
+	tw.mapScreen[0] = topLeftX;
+	tw.mapScreen[1] = topLeftY;
+	tw.mapScreen[2] = bottomRightX;
+	tw.mapScreen[3] = bottomRightY;
+}
+
 tw.getParams = function() {
 	if (location.search === "") return {};
 	var o = {}, nvPairs = location.search.substr(1).replace(/\+/g, " ").split("&");
@@ -156,10 +173,18 @@ tw.buildTiles = function(data, layerNum) {
 
 tw.Map = function(data) {
 	this.textures = []; // loaded textures
-	this.layers = [];
+	this.groups = [];
+
+	var grp;
 
 	for (var g = 0; g < data.groups.length; g++)
 	{
+		grp = new tw.Map.Group(this,
+					data.groups[g].parallaxX,
+					data.groups[g].parallaxY,
+					data.groups[g].offsX,
+					data.groups[g].offsY);
+		
 		for (var l = 0; l < data.groups[g].layers.length; l++)
 		{
 			var dLayer = data.groups[g].layers[l];
@@ -167,40 +192,77 @@ tw.Map = function(data) {
 			if (dLayer.tex == "")
 				continue;
 
-			console.log("asd", dLayer.size[0], dLayer.size[1]);
-			this.addLayer(dLayer.size[0], dLayer.size[1], dLayer, dLayer.tex);
+			grp.addLayer(dLayer.size[0], dLayer.size[1], dLayer, dLayer.tex);
 		}
+
+		this.groups.push(grp);
 	}
 }
 
-tw.Map.prototype.addLayer = function(width, height, tiles, texture) {
+tw.Map.Group = function(map, paraX, paraY, offsX, offsY) {
+	this.paraX = paraX;
+	this.paraY = paraY;
+	this.offsX = offsX;
+	this.offsY = offsY;
+	this.map = map;
+	this.layers = [];
+}
+
+tw.Map.Group.prototype.addLayer = function(width, height, tiles, texture) {
 	var tex;
 	// Check wheter the texture is loaded
-	for (var i = 0; i < this.textures.length; i++)
+	for (var i = 0; i < this.map.textures.length; i++)
 	{
-		if (this.textures[i].fileName == texture)
-			tex = this.textures[i].texId;
+		if (this.map.textures[i].fileName == texture)
+			tex = this.map.textures[i].texId;
 	}
 
 	if (!tex)
 	{
 		// Texture not found, load it
 		tex = tw.loadTexture(texture);
-		this.textures.push({ fileName: texture, texId: tex });
+		this.map.textures.push({ fileName: texture, texId: tex });
 	}
 
-	var newLayer = new tw.MapLayer(width, height, tw.buildTiles(tiles));
+	var newLayer = new tw.MapLayer(width, height, tw.buildTiles(tiles), this);
 	newLayer.texId = tex;
 	this.layers.push(newLayer);
 }
 
-tw.Map.prototype.tick = function() {
+tw.Map.Group.prototype.tick = function() {
 	for (var i = 0; i < this.layers.length; i++)
 		this.layers[i].tick();
 }
 
-tw.Map.prototype.render = function() {
-	// Render all maplayers
+tw.Map.Group.prototype.initMapScreen = function() {
+	var width = 1000*tw.aspect;
+	var height = 1000;
+
+	var cx = tw.cameraPos[0]*(this.paraX/100);
+	var cy = tw.cameraPos[1]*(this.paraY/100);
+
+	width *= 1/tw.cameraZoom;
+	height *= 1/tw.cameraZoom;
+
+	var p1 = this.offsX+cx-width/2;
+	var p2 = this.offsY+cy-height/2;
+	var p3 = p1 + width;
+	var p4 = p2 + height;
+
+	tw.setMapScreen(p1, p2, p3, p4);
+}
+
+tw.initPrjMat = function() {
+	// Init projection matrix
+	mat4.ortho(tw.prjMat, tw.mapScreen[0], tw.mapScreen[2], tw.mapScreen[3], tw.mapScreen[1], 1, -1);
+	tw.setMatUniforms();
+}
+
+tw.Map.Group.prototype.render = function() {
+
+	this.initMapScreen();
+	tw.initPrjMat();
+	
 	for (var i = 0; i < this.layers.length; i++)
 	{
 		var layer = this.layers[i];
@@ -208,6 +270,19 @@ tw.Map.prototype.render = function() {
 		// bind texture of layer
 		tw.gl.bindTexture(tw.gl.TEXTURE_2D, layer.texId);
 		layer.render();
+	}
+}
+
+tw.Map.prototype.tick = function() {
+	for (var i = 0; i < this.groups.length; i++)
+		this.groups[i].tick();
+}
+
+tw.Map.prototype.render = function() {
+	// Render all groups
+	for (var i = 0; i < this.groups.length; i++)
+	{
+		this.groups[i].render();
 	}
 
 	// Unbind texture
@@ -227,7 +302,8 @@ tw.loadTexture = function(imgUrl) {
 		gl.bindTexture(gl.TEXTURE_2D, tex);
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tex.image);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+		gl.generateMipmap(gl.TEXTURE_2D);
 		gl.bindTexture(gl.TEXTURE_2D, null);
 	}
 
@@ -281,12 +357,9 @@ tw.buildShader = function(str, type) {
 tw.mainLoop = function() {
 	requestAnimFrame(tw.mainLoop);
 
-	// Set mapscreen
-	tw.curScreenSize[0] = tw.screenSize[0] / tw.cameraZoom;
-	tw.curScreenSize[1] = tw.screenSize[1] / tw.cameraZoom;
 	// Move camera
-	tw.cameraPos[0] += tw.mouseDownInc[0]*(tw.curScreenSize[0]/tw.canvas.width);
-	tw.cameraPos[1] += tw.mouseDownInc[1]*(tw.curScreenSize[0]/tw.canvas.height);
+	tw.cameraPos[0] += tw.mouseDownInc[0];
+	tw.cameraPos[1] += tw.mouseDownInc[1];
 	
 	tw.mouseDownInc[0] = 0;
 	tw.mouseDownInc[1] = 0;
@@ -297,42 +370,37 @@ tw.mainLoop = function() {
 	tw.zoomed = false;
 }
 
-tw.render = function() {
-	var gl = tw.gl;
+tw.setMatUniforms = function() {
+	tw.gl.uniformMatrix4fv(tw.stdShader.pMatUni, false, tw.prjMat);
+	tw.gl.uniformMatrix4fv(tw.stdShader.mvMatUni, false, tw.mvMat);
+}
 
-	// resize
+tw.screenResize = function() {
 	tw.canvas.width = window.innerWidth;
 	tw.canvas.height = window.innerHeight;
 
+	tw.aspect = tw.canvas.width / tw.canvas.height;
+}
+
+tw.render = function() {
+	var gl = tw.gl;
+
+	tw.screenResize();	
+	
 	// Set viewport
 	tw.gl.viewportWidth = tw.canvas.width;
 	tw.gl.viewportHeight = tw.canvas.height;
 
-	var aspect = tw.gl.viewportWidth / tw.gl.viewportHeight;
-	tw.screenSize[0] = tw.screenSize[1]*aspect;
-
 	gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
-	gl.clear(gl.COLOR_BUFFER_BIT);
+	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-	var prjMat = mat4.create();
-	mat4.ortho(prjMat, 0, tw.screenSize[0], tw.screenSize[1], 0, 1, -1);
-	var mvMat = mat4.create();
+	// reset matrices
+	mat4.identity(tw.mvMat);
+	mat4.identity(tw.prjMat);
 	
-	// Camera zoom
-	mat4.scale(mvMat, mvMat, [tw.cameraZoom, tw.cameraZoom, 0.0]);
-
-	// camera move
-	mat4.translate(mvMat, mvMat, [tw.curScreenSize[0]/2-tw.cameraPos[0], tw.curScreenSize[1]/2-tw.cameraPos[1], 0.0]);
-	// resize for map
-	mat4.scale(mvMat, mvMat, [32, 32, 0.0]);
-
-	gl.uniformMatrix4fv(tw.stdShader.pMatUni, false, prjMat);
-	gl.uniformMatrix4fv(tw.stdShader.mvMatUni, false, mvMat);
-
-	// enable texture
+	// enable texture 0
 	gl.activeTexture(gl.TEXTURE0);
-	gl.uniform1i(tw.stdShader.uSampler, 0);
-		
+	gl.uniform1i(tw.stdShader.uSampler, 0);		
 
 	this.map.tick();
 	this.map.render();
@@ -343,7 +411,7 @@ tw.MapTile = function(index, flags) {
 	this.flags = flags;
 }
 
-tw.MapLayer = function(width, height, tiles) {
+tw.MapLayer = function(width, height, tiles, group) {
 	this.width = width;
 	this.height = height;
 	this.tiles = tiles;
@@ -360,6 +428,7 @@ tw.MapLayer = function(width, height, tiles) {
 	this.indexBuf = undefined;
 	this.tileSize = 32;
 	this.needInit = true;
+	this.group = group;
 }
 
 // get the number of tiles that will be rendered
@@ -378,6 +447,7 @@ tw.MapLayer.prototype.tick = function() {
 	{
 		this.needInit = false;
 		// Re / initialise buffers
+		this.group.initMapScreen();
 		this.initBuffers();
 	}
 }
@@ -408,7 +478,7 @@ tw.MapLayer.prototype.initBuffers = function() {
 
 	// mipmap border correction
 	var tilePixelSize = 1024/32;
-	var finalTileSize = this.tileSize / (tw.curScreenSize[0]) * tw.canvas.width;
+	var finalTileSize = 32/(tw.mapScreen[2]-tw.mapScreen[0]) * tw.canvas.width;
 	var finalTilesetScale = finalTileSize / tilePixelSize 
 
 	var texSize = 1024.0
@@ -546,6 +616,11 @@ tw.MapLayer.prototype.initBuffers = function() {
 }
 
 tw.MapLayer.prototype.render = function() {
+	// MapTile resize
+	mat4.copy(tw.tmpMat, tw.mvMat);
+	mat4.scale(tw.mvMat, tw.mvMat, [32, 32, 0.0]);
+	tw.setMatUniforms();
+	
 	// Vertex attribute
 	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, this.vertexBuf);
 	tw.gl.vertexAttribPointer(tw.stdShader.vPosAttr, 2, tw.gl.FLOAT, false, 0, 0);
@@ -555,6 +630,9 @@ tw.MapLayer.prototype.render = function() {
 
 	tw.gl.bindBuffer(tw.gl.ELEMENT_ARRAY_BUFFER, this.indexBuf);
 	tw.gl.drawElements(tw.gl.TRIANGLES, this.indices.length, tw.gl.UNSIGNED_SHORT, 0);
+
+	// Get old mvMat
+	mat4.copy(tw.mvMat, tw.tmpMat);
 }
 
 tw.vertexShader = " \
