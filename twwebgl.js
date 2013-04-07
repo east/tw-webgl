@@ -12,7 +12,11 @@ var tw = {
 
 tw.init = function() {
 	tw.canvas = document.getElementById("cnvs");
-	
+
+	// Change background color of canvas to black
+	// to avoid white border artefacts
+	tw.canvas.style.background = "#000000"
+
 	try {
 		tw.gl = tw.canvas.getContext("experimental-webgl"); 
 	} catch(e) {
@@ -56,9 +60,10 @@ tw.init = function() {
 	// Vertex position attribute
 	tw.stdShader.vPosAttr = tw.gl.getAttribLocation(tw.stdShader, "aPosition");
 	tw.gl.enableVertexAttribArray(tw.stdShader.vPosAttr);
+	// Vertex color attribute
+	tw.stdShader.vVertexColor = tw.gl.getAttribLocation(tw.stdShader, "aVertexColor");
 	// Tex coord attribute
 	tw.stdShader.vTexCoordAttr = tw.gl.getAttribLocation(tw.stdShader, "aTexCoord");
-	//tw.gl.enableVertexAttribArray(tw.stdShader.vTexCoordAttr);
 	// Move / projection matrix
 	tw.stdShader.pMatUni = tw.gl.getUniformLocation(tw.stdShader, "uPMatrix");
 	tw.stdShader.mvMatUni = tw.gl.getUniformLocation(tw.stdShader, "uMVMatrix");
@@ -70,6 +75,9 @@ tw.init = function() {
 	// Using texture coords
 	tw.stdShader.uTexCoord = tw.gl.getUniformLocation(tw.stdShader, "uTexCoord");
 	tw.gl.uniform1i(tw.stdShader.uTexCoord, 0); // Reset
+	// Using vertex color
+	tw.stdShader.uVertexColor = tw.gl.getUniformLocation(tw.stdShader, "uVertexColor");
+	tw.gl.uniform1i(tw.stdShader.uVertexColor, 0); // Reset
 
 	tw.gl.clearColor(0.0, 0.1, 1.0, 1.0);
 
@@ -156,6 +164,16 @@ tw.sTexCoords = function(state) {
 	tw.gl.uniform1i(tw.stdShader.uTexCoord, state);
 }
 
+tw.sVertexColor = function(state) {
+	if (state)
+		tw.gl.enableVertexAttribArray(tw.stdShader.vVertexColor);
+	else
+		tw.gl.disableVertexAttribArray(tw.stdShader.vVertexColor);
+
+	tw.gl.uniform1i(tw.stdShader.uVertexColor, state);
+}
+
+
 tw.setColorMask = function(rgba) {
 	tw.gl.uniform4fv(tw.stdShader.uColorMask, rgba); // Reset
 }
@@ -229,14 +247,20 @@ tw.Map = function(data) {
 	}
 }
 
-tw.QuadLayer = function(tex_id, quads) {
+tw.QuadLayer = function(glTex, quads) {
 	this.type = tw.LAYERTYPE_QUADS;
-	this.tex_id = tex_id;
+	this.glTex = glTex;
 	this.quads = [];
 
 	// vertices buffer for all quads of this layer
 	this.vBuf = new Float32Array(quads.length*4*2);
 	this.glVertexBuf = tw.gl.createBuffer();
+	// vertex color buffer
+	this.cBuf = new Float32Array(quads.length*4*4);
+	this.glColorBuf = tw.gl.createBuffer();
+	// texture coords buffer
+	this.tBuf = new Float32Array(quads.length*4*2);
+	this.glTexBuf = tw.gl.createBuffer();
 	// index buffer
 	this.iBuf = new Uint16Array(quads.length*6);
 	this.glIndexBuf = tw.gl.createBuffer();
@@ -263,6 +287,38 @@ tw.QuadLayer.prototype.tick = function() {
 		this.vBuf.set(vertices, i*8);
 	}
 
+	// Vertex color
+	for (var i = 0; i < this.quads.length; i++) {
+		var q = this.quads[i];
+		var colors = [
+
+
+			q.colors[0][0]/255, q.colors[0][1]/255, q.colors[0][2]/255, q.colors[0][3]/255,
+			q.colors[2][0]/255, q.colors[2][1]/255, q.colors[2][2]/255, q.colors[2][3]/255,
+
+			q.colors[3][0]/255, q.colors[3][1]/255, q.colors[3][2]/255, q.colors[3][3]/255,
+			q.colors[1][0]/255, q.colors[1][1]/255, q.colors[1][2]/255, q.colors[1][3]/255,
+
+		];
+		
+		this.cBuf.set(colors, i*16);
+	}
+
+	// Texture coords
+	for (var i = 0; i < this.quads.length; i++) {
+		var q = this.quads[i];
+
+		var coords = [
+			q.texcoords[0][0]/1024, q.texcoords[0][1]/1024,
+			q.texcoords[2][0]/1024, q.texcoords[2][1]/1024,
+			q.texcoords[3][0]/1024, q.texcoords[3][1]/1024,
+			q.texcoords[1][0]/1024, q.texcoords[1][1]/1024,
+		];
+
+		this.tBuf.set(coords, i*8);
+	}
+
+	// Indices
 	var t = 0;
 	for (var i = 0; i < this.quads.length*4; i+=4) {
 		var indices = [
@@ -275,8 +331,16 @@ tw.QuadLayer.prototype.tick = function() {
 		t++;
 	}
 
+	// Build gl buffers
 	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, this.glVertexBuf);
 	tw.gl.bufferData(tw.gl.ARRAY_BUFFER, this.vBuf, tw.gl.STATIC_DRAW);
+	
+	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, this.glColorBuf);
+	tw.gl.bufferData(tw.gl.ARRAY_BUFFER, this.cBuf, tw.gl.STATIC_DRAW);
+	
+	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, this.glTexBuf);
+	tw.gl.bufferData(tw.gl.ARRAY_BUFFER, this.tBuf, tw.gl.STATIC_DRAW);
+	
 	tw.gl.bindBuffer(tw.gl.ELEMENT_ARRAY_BUFFER, this.glIndexBuf);
 	tw.gl.bufferData(tw.gl.ELEMENT_ARRAY_BUFFER, this.iBuf, tw.gl.STATIC_DRAW);
 }
@@ -289,15 +353,33 @@ tw.renderLine = function(x1, y1, x2, y2) {
 }
 
 tw.QuadLayer.prototype.render = function() {
+	
+	// Enable texture
+	if (this.glTex)
+	{
+		tw.sTexCoords(1);
+		tw.gl.bindTexture(tw.gl.TEXTURE_2D, this.glTex);
+	}
+	else
+		tw.sTexCoords(0);
 
-	tw.sTexCoords(0);
+	// Enable vertex colors
+	tw.sVertexColor(1);
+
 	tw.setMatUniforms();
 
 	tw.setColorMask([1.0, 1.0, 1.0, 1.0]);
 
-	// Vertex attribute
+	// Set attributes
 	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, this.glVertexBuf);
 	tw.gl.vertexAttribPointer(tw.stdShader.vPosAttr, 2, tw.gl.FLOAT, false, 0, 0);
+	
+	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, this.glColorBuf);
+	tw.gl.vertexAttribPointer(tw.stdShader.vVertexColor, 4, tw.gl.FLOAT, false, 0, 0);
+
+	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, this.glTexBuf);
+	tw.gl.vertexAttribPointer(tw.stdShader.vTexCoordAttr, 2, tw.gl.FLOAT, false, 0, 0);
+	
 	tw.gl.bindBuffer(tw.gl.ELEMENT_ARRAY_BUFFER, this.glIndexBuf);
 	tw.gl.drawElements(tw.gl.TRIANGLES, this.quads.length*6, tw.gl.UNSIGNED_SHORT, 0);
 }
@@ -312,42 +394,47 @@ tw.Map.Group = function(map, paraX, paraY, offsX, offsY) {
 }
 
 tw.Map.Group.prototype.addQuadLayer = function(texture, quads) {
-	var tex;
-	// Check wheter the texture is loaded
-	for (var i = 0; i < this.map.textures.length; i++)
+	var glTex = undefined;
+
+	if (texture != "")
 	{
-		if (this.map.textures[i].fileName == texture)
-			tex = this.map.textures[i].texId;
+		// Check wheter the texture is loaded
+		for (var i = 0; i < this.map.textures.length; i++)
+		{
+			if (this.map.textures[i].fileName == texture)
+				glTex = this.map.textures[i].glTex;
+		}
+
+		if (!glTex)
+		{
+			// Texture not found, load it
+			glTex = tw.loadTexture(texture);
+			this.map.textures.push({ fileName: texture, glTex: glTex });
+		}
 	}
 
-	if (!tex)
-	{
-		// Texture not found, load it
-		tex = tw.loadTexture(texture);
-		this.map.textures.push({ fileName: texture, texId: tex });
-	}
-
-	this.layers.push(new tw.QuadLayer(tex, quads));
+	this.layers.push(new tw.QuadLayer(glTex, quads));
 }
 
 tw.Map.Group.prototype.addTileLayer = function(width, height, tiles, texture, color) {
-	var tex;
+	var glTex = undefined;
+
 	// Check wheter the texture is loaded
 	for (var i = 0; i < this.map.textures.length; i++)
 	{
 		if (this.map.textures[i].fileName == texture)
-			tex = this.map.textures[i].texId;
+			glTex = this.map.textures[i].texId;
 	}
 
-	if (!tex)
+	if (!glTex)
 	{
 		// Texture not found, load it
-		tex = tw.loadTexture(texture);
-		this.map.textures.push({ fileName: texture, texId: tex });
+		glTex = tw.loadTexture(texture);
+		this.map.textures.push({ fileName: texture, glTex: glTex });
 	}
 
 	var newLayer = new tw.TileLayer(width, height, tw.buildTiles(tiles), color, this);
-	newLayer.texId = tex;
+	newLayer.glTex = glTex;
 	this.layers.push(newLayer);
 }
 
@@ -388,9 +475,6 @@ tw.Map.Group.prototype.render = function() {
 	for (var i = 0; i < this.layers.length; i++)
 	{
 		var layer = this.layers[i];
-
-		// bind texture of layer
-		tw.gl.bindTexture(tw.gl.TEXTURE_2D, layer.texId);
 		layer.render();
 	}
 }
@@ -745,8 +829,12 @@ tw.TileLayer.prototype.initBuffers = function() {
 
 tw.TileLayer.prototype.render = function() {
 	
-	// Enable texture coords
+	// Enable texture
 	tw.sTexCoords(1);
+	tw.gl.bindTexture(tw.gl.TEXTURE_2D, this.glTex);
+
+	// Vertex colors are not needed
+	tw.sVertexColor(0);
 
 	// MapTile resize
 	mat4.copy(tw.tmpMat, tw.mvMat);
@@ -773,18 +861,23 @@ tw.TileLayer.prototype.render = function() {
 
 tw.vertexShader = " \
 	attribute vec2 aPosition; \
+	attribute vec4 aVertexColor; \
 	attribute vec2 aTexCoord; \
 	uniform mat4 uPMatrix; \
 	uniform mat4 uMVMatrix; \
 	uniform bool uTexCoord;\
+	uniform bool uVertexColor; \
 	\
 	varying vec2 vTexCoord; \
+	varying vec4 vColor; \
 	\
 	void main(void) \
 	{ \
 		gl_Position = uPMatrix * uMVMatrix * vec4(aPosition.x, aPosition.y, 0.0, 1.0); \
 		if (uTexCoord) \
 			vTexCoord = aTexCoord; \
+		if (uVertexColor) \
+			vColor = aVertexColor; \
 	} \
 ";
 
@@ -792,15 +885,19 @@ tw.fragmentShader = " \
 	precision mediump float; \
 	\
 	varying vec2 vTexCoord; \
+	varying vec4 vColor; \
 	uniform sampler2D uSampler; \
 	uniform vec4 uColorMask; \
 	uniform bool uTexCoord; \
+	uniform bool uVertexColor; \
 	\
 	void main(void) \
 	{ \
 		gl_FragColor = uColorMask; \
 		if (uTexCoord) \
 			gl_FragColor *= texture2D(uSampler, vec2(vTexCoord.s, vTexCoord.t)); \
+		if (uVertexColor) \
+			gl_FragColor *= vColor; \
 	} \
 ";
 
