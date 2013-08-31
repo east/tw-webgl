@@ -423,7 +423,7 @@ tw.Map.Group.prototype.addTileLayer = function(width, height, tiles, texture, co
 	for (var i = 0; i < this.map.textures.length; i++)
 	{
 		if (this.map.textures[i].fileName == texture)
-			glTex = this.map.textures[i].texId;
+			glTex = this.map.textures[i].glTex;
 	}
 
 	if (!glTex)
