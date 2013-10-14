@@ -18,7 +18,7 @@ tw.init = function() {
 	tw.canvas.style.background = "#000000"
 
 	try {
-		tw.gl = tw.canvas.getContext("experimental-webgl"); 
+		tw.gl = tw.canvas.getContext("webgl") || tw.canvas.getContext("experimental-webgl");
 	} catch(e) {
 		alert("Failed to initialise webgl: '" + e + "'");
 		return; // Failed to initialize webgl :/
@@ -207,7 +207,7 @@ tw.getParams = function() {
 
 // Build tiles from json
 tw.buildTiles = function(data, layerNum) {
-	var tiles = []
+	var tiles = [];
 	for (var i = 0; i < data.tiles.length; i++)
 		tiles.push(new tw.MapTile(data.tiles[i], data.tileFlags[i]));
 	
@@ -423,7 +423,7 @@ tw.Map.Group.prototype.addTileLayer = function(width, height, tiles, texture, co
 	for (var i = 0; i < this.map.textures.length; i++)
 	{
 		if (this.map.textures[i].fileName == texture)
-			glTex = this.map.textures[i].glTex;
+			glTex = this.map.textures[i].texId;
 	}
 
 	if (!glTex)
@@ -629,15 +629,10 @@ tw.TileLayer = function(width, height, tiles, color, group) {
 	this.numTiles = this.renderTileNum();
 
 	this.color = new Float32Array([color[0]/255, color[1]/255, color[2]/255, color[3]/255]);
-	this.vertices = new Array(this.numTiles*8);
-	this.vertexFloatArray = new Float32Array(this.vertices.length);
-	this.texCoords = new Array(this.numTiles*8);
-	this.texCoordFloatArray = new Float32Array(this.texCoords.length);
-	this.indexIntArray = new Uint16Array(this.numTiles*6)
-	this.indices = new Array(this.numTiles*6);
+	this.vertexFloatArray = new Float32Array(this.numTiles*12);
+	this.texCoordFloatArray = new Float32Array(this.numTiles*12);
 	this.vertexBuf = undefined;
 	this.texCoordBuf = undefined;
-	this.indexBuf = undefined;
 	this.tileSize = 32;
 	this.needInit = true;
 	this.group = group;
@@ -720,10 +715,12 @@ tw.TileLayer.prototype.initBuffers = function() {
 				x, y,
 				x, y+1.0,
 				x+1.0, y+1.0,
+				x, y,
+				x+1.0, y+1.0,
 				x+1.0, y
 			];
 
-			tw.setArray(this.vertices, t*8, vertices);
+			this.vertexFloatArray.set(vertices, t*12);
 		
 			// Get subset offsets
 			//TODO: fix border artefacts
@@ -786,45 +783,30 @@ tw.TileLayer.prototype.initBuffers = function() {
 				x0, y0,
 				x3, y1,
 				x1, y2,
+				x0, y0,
+				x1, y2,
 				x2, y3
 			]
 
-			tw.setArray(this.texCoords, t*8, texCoords);
+			this.texCoordFloatArray.set(texCoords, t*12)
 
 			t++;
 		}
 	}
 
-	t = 0;
-	for (var i = 0; i < this.numTiles*4; i+=4)
-	{
-		tw.setArray(this.indices, t*6, [
-			i, i+1, i+2,
-			i, i+2, i+3
-		]);
-
-		t++;
-	}
 	
 	// Init gl buffers
 	if (this.vertexBuf == undefined)
 	{
 		this.vertexBuf = tw.gl.createBuffer();
-		this.indexBuf = tw.gl.createBuffer();
 		this.texCoordBuf = tw.gl.createBuffer();
 	}
 
 	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, this.vertexBuf);
-	this.vertexFloatArray.set(this.vertices);
 	tw.gl.bufferData(tw.gl.ARRAY_BUFFER, this.vertexFloatArray, tw.gl.STATIC_DRAW);
 	
 	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, this.texCoordBuf);
-	this.texCoordFloatArray.set(this.texCoords);
 	tw.gl.bufferData(tw.gl.ARRAY_BUFFER, this.texCoordFloatArray, tw.gl.STATIC_DRAW);
-
-	tw.gl.bindBuffer(tw.gl.ELEMENT_ARRAY_BUFFER, this.indexBuf);
-	this.indexIntArray.set(this.indices);
-	tw.gl.bufferData(tw.gl.ELEMENT_ARRAY_BUFFER, this.indexIntArray, tw.gl.STATIC_DRAW);
 }
 
 tw.TileLayer.prototype.render = function() {
@@ -851,9 +833,7 @@ tw.TileLayer.prototype.render = function() {
 	// Texture coord attribute
 	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, this.texCoordBuf);
 	tw.gl.vertexAttribPointer(tw.stdShader.vTexCoordAttr, 2, tw.gl.FLOAT, false, 0, 0);
-
-	tw.gl.bindBuffer(tw.gl.ELEMENT_ARRAY_BUFFER, this.indexBuf);
-	tw.gl.drawElements(tw.gl.TRIANGLES, this.indices.length, tw.gl.UNSIGNED_SHORT, 0);
+	tw.gl.drawArrays(tw.gl.TRIANGLES, 0, this.numTiles * 6);
 
 	// Get old mvMat
 	mat4.copy(tw.mvMat, tw.tmpMat);
