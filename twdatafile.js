@@ -1,36 +1,3 @@
-window.onload = function() {
-	document.getElementById("fileSelect").addEventListener('change', function(evt){
-		var file = evt.target.files[0];
-		var fileName = file.name;
-
-		reader = new FileReader();
-		reader.readAsArrayBuffer(file);
-
-		reader.onloadend = function(file) {
-			data = file.target.result;
-			// try to parse datafile
-			dfile = new TwDataFile(fileName, data);
-			dfile.parse();
-
-			console.log(dfile);
-
-			for (var i = 0; i < dfile.numItems; i++) {
-				console.log(dfile.getItem(i));
-			}
-		}
-	}, false);
-}
-
-// extend DataView
-DataView.prototype.resetReader = function() {
-	this.readerOffs = 0;
-}
-
-DataView.prototype.uint32 = function() {
-	this.readerOffs += 4;
-	return this.getUint32(this.readerOffs-4, true /* little endian */);
-}
-
 function TwDataFile(mapName, fileData) {
 	this.mapName = mapName;
 	this.fileData = fileData;

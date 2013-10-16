@@ -1,21 +1,32 @@
 var tw = {
 	// Constants
 	// Tile flags
-	TILEFLAG_VFLIP: 1,
-	TILEFLAG_HFLIP: 2,
-	TILEFLAG_OPAQUE: 4,
-	TILEFLAG_ROTATE: 8,
+	TILEFLAG_VFLIP:		1,
+	TILEFLAG_HFLIP:		2,
+	TILEFLAG_OPAQUE:	4,
+	TILEFLAG_ROTATE:	8,
 
-	LAYERTYPE_QUADS: 1,
-	LAYERTYPE_TILES: 2,
+	LAYERTYPE_INVALID:	0,
+	LAYERTYPE_GAME:		1,
+	LAYERTYPE_TILES:	2,
+	LAYERTYPE_QUADS:	3,
+
+	MAPITEMTYPE_VERSION:	0,
+	MAPITEMTYPE_INFO:		1,
+	MAPITEMTYPE_IMAGE:		2,
+	MAPITEMTYPE_ENVELOPE:	3,
+	MAPITEMTYPE_GROUP:		4,
+	MAPITEMTYPE_LAYER:		5,
+	MAPITEMTYPE_ENVPOINTS:	6,
 }
 
-tw.init = function() {
+tw.init = function(mapData) {
+	console.log("do init", mapData)
 	tw.canvas = document.getElementById("cnvs");
 
 	// Change background color of canvas to black
 	// to avoid white border artefacts
-	tw.canvas.style.background = "#000000"
+	//tw.canvas.style.background = "#000000"
 
 	try {
 		tw.gl = tw.canvas.getContext("webgl") || tw.canvas.getContext("experimental-webgl");
@@ -140,16 +151,7 @@ tw.init = function() {
 
 	tw.zoomed = false
 
-	// Test load map json
-	data = tw.getJSON(tw.getParams().map || "dm1.map.json");
-
-	if (!data)
-	{
-		alert("Map not found");
-		return;
-	}
-
-	this.map = new tw.Map(data);
+	this.map = new tw.Map(mapData);
 
 	tw.mainLoop();
 }
@@ -214,11 +216,123 @@ tw.buildTiles = function(data, layerNum) {
 	return tiles;
 }
 
-tw.Map = function(data) {
+tw.parseMapGroup = function(groupData) {
+	var obj = {}
+
+	var d = new DataView(groupData);
+	d.resetReader();
+
+	obj.version = d.uint32();
+	obj.offsX = d.int32();
+	obj.offsY = d.int32();
+	obj.parallaxX = d.int32();
+	obj.parallaxY = d.int32();
+	obj.startLayer = d.uint32();
+	obj.numLayers = d.uint32();
+	obj.useClipping = d.uint32();
+	obj.clipX = d.int32();
+	obj.clipY = d.int32();
+	obj.clipW = d.int32();
+	obj.clipH = d.int32();
+
+	return obj;
+}
+
+tw.parseMapLayer = function(layerData) {
+	var obj = {}
+
+	var d = new DataView(layerData);
+	d.resetReader();
+
+	obj.version = d.uint32();
+	obj.type = d.uint32();
+	obj.flags = d.uint32();
+
+	return obj;
+}
+
+tw.parseMapLayerQuads = function(layerData) {
+	var obj = {}
+
+	var d = new DataView(layerData);
+	d.resetReader();
+
+	/*obj.version =*/ d.uint32();
+	/*obj.type =*/ d.uint32();
+	/*obj.flags =*/ d.uint32();
+
+	obj.version = d.uint32();
+	obj.numQuads = d.uint32();
+	obj.data = d.int32();
+	obj.image = d.int32();
+
+	return obj;
+}
+
+tw.parseMapLayerTiles = function(layerData) {
+	var obj = {}
+
+	var d = new DataView(layerData);
+	d.resetReader();
+
+	/*obj.version =*/ d.uint32();
+	/*obj.type =*/ d.uint32();
+	/*obj.flags =*/ d.uint32();
+
+	obj.version = d.uint32();
+	obj.width = d.int32();
+	obj.height = d.int32();
+	obj.flags = d.uint32();
+	
+	//TODO: color
+	d.uint32(); d.uint32(); d.uint32(); d.uint32();
+
+	obj.colorEnv = d.int32();
+	obj.colorEnvOffset = d.int32();
+
+	obj.image = d.int32();
+	obj.data = d.int32();
+
+	//TODO: name
+
+	return obj;
+}
+
+tw.Map = function(mapData) {
 	this.textures = []; // loaded textures
 	this.groups = [];
 
-	var grp;
+	this.dataFile =	new TwDataFile("", mapData) 
+	this.dataFile.parse();
+
+	var dFile = this.dataFile;
+
+	var groupsInfo = dFile.getType(tw.MAPITEMTYPE_GROUP);
+
+	for (var g = 0; g < groupsInfo.num; g++) {
+		var groupItem = dFile.getItem(groupsInfo.start+g);
+		var groupInfo = tw.parseMapGroup(groupItem.data);
+
+		console.log(groupInfo);
+		
+		this.groups.push(new tw.Map.Group(this, groupInfo));
+
+		var layersInfo = dFile.getType(tw.MAPITEMTYPE_LAYER);
+
+		for (var l = 0; l < groupInfo.numLayers; l++) {
+			var layerItem = dFile.getItem(layersInfo.start+groupInfo.startLayer+l);
+			var layerInfo = tw.parseMapLayer(layerItem.data);
+
+			if (layerInfo.type == tw.LAYERTYPE_TILES) {
+				var tileLayerInfo = tw.parseMapLayerTiles(layerItem.data);
+			} else if(layerInfo.type == tw.LAYERTYPE_QUADS) {
+				var quadLayerInfo = tw.parseMapLayerQuads(layerItem.data);
+			}
+		}
+
+	}
+
+	/*var grp;
 
 	for (var g = 0; g < data.groups.length; g++)
 	{
@@ -244,7 +358,7 @@ tw.Map = function(data) {
 		}
 
 		this.groups.push(grp);
-	}
+	}*/
 }
 
 tw.QuadLayer = function(glTex, quads) {
@@ -384,11 +498,11 @@ tw.QuadLayer.prototype.render = function() {
 	tw.gl.drawElements(tw.gl.TRIANGLES, this.quads.length*6, tw.gl.UNSIGNED_SHORT, 0);
 }
 
-tw.Map.Group = function(map, paraX, paraY, offsX, offsY) {
-	this.paraX = paraX;
-	this.paraY = paraY;
-	this.offsX = offsX;
-	this.offsY = offsY;
+tw.Map.Group = function(map, info) {
+	this.paraX = info.parallaxX;
+	this.paraY = info.parallaxY;
+	this.offsX = info.offsX;
+	this.offsY = info.offsY;
 	this.map = map;
 	this.layers = [];
 }
@@ -586,8 +700,8 @@ tw.setMatUniforms = function() {
 }
 
 tw.screenResize = function() {
-	tw.canvas.width = window.innerWidth;
-	tw.canvas.height = window.innerHeight;
+	tw.canvas.width = 1024;
+	tw.canvas.height = 480;
 
 	tw.aspect = tw.canvas.width / tw.canvas.height;
 }
