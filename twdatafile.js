@@ -1,6 +1,7 @@
 window.onload = function() {
 	document.getElementById("fileSelect").addEventListener('change', function(evt){
-		file = evt.target.files[0];
+		var file = evt.target.files[0];
+		var fileName = file.name;
 
 		reader = new FileReader();
 		reader.readAsArrayBuffer(file);
@@ -8,16 +9,12 @@ window.onload = function() {
 		reader.onloadend = function(file) {
 			data = file.target.result;
 			// try to parse datafile
-			dfile = new TwDataFile(data);
+			dfile = new TwDataFile(fileName, data);
 			dfile.parse();
 
 			console.log(dfile)
 		}
 	}, false);
-}
-
-function TwDataFile(fileData) {
-	this.fileData = fileData;
 }
 
 // extend DataView
@@ -28,6 +25,11 @@ DataView.prototype.resetReader = function() {
 DataView.prototype.uint32 = function() {
 	this.readerOffs += 4;
 	return this.getUint32(this.readerOffs-4, true /* little endian */);
+}
+
+function TwDataFile(mapName, fileData) {
+	this.mapName = mapName;
+	this.fileData = fileData;
 }
 
 TwDataFile.prototype.parse = function() {
@@ -107,6 +109,18 @@ TwDataFile.prototype.parse = function() {
 		} else {
 			this.dataInfos[i].compSize = this.dataInfos[i+1].offset-this.dataInfos[i].offset;
 		}
+	}
+
+	// decompress data
+	this.decData = []
+	for (var i = 0; i < this.numRawData; i++) {
+		var startOffs = this.dataInfos[i].offset + this.dataStart;
+		var endOffs = startOffs + this.dataInfos[i].compSize;
+		cData = new Uint8Array(this.fileData.slice(startOffs, endOffs));
+
+		// let's see what zlib.js can do :>
+		var inflate = new Zlib.Inflate(cData);
+		this.decData.push(inflate.decompress());
 	}
 
 	return true;
