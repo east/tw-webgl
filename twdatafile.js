@@ -12,7 +12,11 @@ window.onload = function() {
 			dfile = new TwDataFile(fileName, data);
 			dfile.parse();
 
-			console.log(dfile)
+			console.log(dfile);
+
+			for (var i = 0; i < dfile.numItems; i++) {
+				console.log(dfile.getItem(i));
+			}
 		}
 	}, false);
 }
@@ -30,16 +34,16 @@ DataView.prototype.uint32 = function() {
 function TwDataFile(mapName, fileData) {
 	this.mapName = mapName;
 	this.fileData = fileData;
+	
+	this.data = new DataView(this.fileData)
+	this.data.resetReader();
 }
 
 TwDataFile.prototype.parse = function() {
 	console.log("begin parsing");
 
-	data = new DataView(this.fileData)
-	data.resetReader();
-
 	// parse header
-	
+	var data = this.data;
 	var signature = data.uint32()
 
 	// signature 'DATA' or 'ATAD'
@@ -124,4 +128,46 @@ TwDataFile.prototype.parse = function() {
 	}
 
 	return true;
+}
+
+TwDataFile.prototype.getData = function(index) {
+	return this.decData[index]
+}
+
+TwDataFile.prototype.getItemSize = function(index) {
+	if (index == this.numItems-1)
+		return this.itemSize - this.itemOffsets[index];
+	return this.itemOffsets[index+1] - this.itemOffsets[index];
+}
+
+TwDataFile.prototype.getItem = function(index) {
+	var offset = this.itemStart + this.itemOffsets[index];
+	var typeAndId = this.data.getUint32(offset, true);
+
+	var item = {
+		type: (typeAndId>>16)&0xffff,
+		id: typeAndId&0xffff,
+		size: this.data.getUint32(offset+4, true),
+		data: this.fileData.slice(offset+8, offset+8+this.getItemSize(index))
+	};
+
+	return item;
+}
+
+TwDataFile.prototype.getType = function(type) {
+	for (var i = 0; i < this.numItemTypes; i++) {
+		if (this.itemTypes[i].type == type) {
+			return this.itemTypes[i];
+		}
+	}
+}
+
+TwDataFile.prototype.findItem = function(type, id) {
+	var t = this.getType(type);
+
+	for (var i = 0; i < t.num; i++) {
+		var item = this.getItem(t.start);
+		if (item.id == id)
+			return item;
+	}
 }
