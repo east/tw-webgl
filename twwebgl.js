@@ -683,11 +683,12 @@ tw.loadTexture = function(attrs) {
 
 	var tex = { name: attrs.name, imgId: attrs.imgId, width: attrs.width, height: attrs.height, loaded: false }
 
-	/*if (attrs.width != attrs.height)
-	{
-		console.log("tex", attrs.name, "invalid")
-		return undefined;
-	}*/
+	var useMipmaps = true;
+
+	if (attrs.width != attrs.height) {
+		console.log("tex", attrs.name, "not power of 2")
+		useMipmaps = false;
+	}
 
 	tex.glTex = tw.gl.createTexture();
 
@@ -699,9 +700,15 @@ tw.loadTexture = function(attrs) {
 		tex.image.onload = function(e) {
 			gl.bindTexture(gl.TEXTURE_2D, tex.glTex);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tex.image);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
-			gl.generateMipmap(gl.TEXTURE_2D);
+			if (useMipmaps) {
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+				gl.generateMipmap(gl.TEXTURE_2D);
+			} else {
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+			}
+
 			gl.bindTexture(gl.TEXTURE_2D, null);
 
 
@@ -719,11 +726,18 @@ tw.loadTexture = function(attrs) {
 		else {
 			gl.bindTexture(gl.TEXTURE_2D, tex.glTex);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, attrs.width, attrs.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, attrs.pixelBuf);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
-			gl.generateMipmap(gl.TEXTURE_2D);
+
+			if (useMipmaps) {
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+				gl.generateMipmap(gl.TEXTURE_2D);
+			} else {
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+			}
+
 			gl.bindTexture(gl.TEXTURE_2D, null);
-			
+
 			console.log("mapres", tex.name, "loaded (intern)");
 			tex.loaded = true;
 		}
