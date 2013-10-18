@@ -353,10 +353,11 @@ tw.Map = function(mapData) {
 		if (imgInfo.external) {
 			// load external texture
 			var url = imgName+".png";
-			glTex = tw.loadTexture({extern: true, imgUrl: url});
-			this.textures.push({ fileName: imgName, glTex: glTex, imgId: i });
+			this.textures.push(tw.loadTexture({extern: true, imgUrl: url, name: imgName, imgId: i}));
 		} else {
-		
+			
+			var imgData = new Uint8Array(dFile.getData(imgInfo.imageData));
+			this.textures.push(tw.loadTexture({extern: false, name: imgName, imgId: i, width: imgInfo.width, height: imgInfo.height, pixelBuf: imgData}));
 		}
 	}
 
@@ -396,34 +397,6 @@ tw.Map = function(mapData) {
 		}
 
 	}
-
-	/*var grp;
-
-	for (var g = 0; g < data.groups.length; g++)
-	{
-		grp = new tw.Map.Group(this,
-					data.groups[g].parallaxX,
-					data.groups[g].parallaxY,
-					data.groups[g].offsX,
-					data.groups[g].offsY);
-		
-		for (var l = 0; l < data.groups[g].layers.length; l++)
-		{
-			var dLayer = data.groups[g].layers[l];
-		
-			if (dLayer.type == "tilelayer")
-			{
-				if (dLayer.tex == "")
-					continue;
-
-				grp.addTileLayer(dLayer.size[0], dLayer.size[1], dLayer, dLayer.tex, dLayer.color);
-			}
-			else if(dLayer.type == "quadlayer")
-				grp.addQuadLayer(dLayer.tex, dLayer.quads);
-		}
-
-		this.groups.push(grp);
-	}*/
 }
 
 tw.Map.prototype.getTex = function(imgId) {
@@ -604,7 +577,7 @@ tw.Map.Group.prototype.addQuadLayer = function(texture, quads) {
 
 tw.Map.Group.prototype.addTileLayer = function(width, height, tiles, color, texture) {
 	var newLayer = new tw.TileLayer(width, height, tiles, color, this);
-	newLayer.glTex = texture.glTex;
+	newLayer.texture = texture;
 	this.layers.push(newLayer);
 }
 
@@ -661,8 +634,11 @@ tw.Map.prototype.render = function() {
 }
 
 tw.loadTexture = function(attrs) {
-	var tex = tw.gl.createTexture();
 	var gl = tw.gl;
+
+	var tex = { name: attrs.name, imgId: attrs.imgId, width: attrs.width, height: attrs.height, loaded: false }
+
+	tex.glTex = tw.gl.createTexture();
 
 	if (attrs.extern) {
 		// load texture from image url
@@ -670,14 +646,16 @@ tw.loadTexture = function(attrs) {
 		tex.image.src = attrs.imgUrl;
 
 		tex.image.onload = function(e) {
-			console.log("loaded", attrs.imgUrl)
-
-			gl.bindTexture(gl.TEXTURE_2D, tex);
+			gl.bindTexture(gl.TEXTURE_2D, tex.glTex);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tex.image);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
 			gl.generateMipmap(gl.TEXTURE_2D);
 			gl.bindTexture(gl.TEXTURE_2D, null);
+
+
+			console.log("mapres", tex.name, "loaded (extern)");
+			tex.loaded = true;
 		}
 
 		tex.image.onerror = function(e) {
@@ -685,12 +663,19 @@ tw.loadTexture = function(attrs) {
 		}
 	} else {
 		// load texture from pixelbuffer
-		gl.bindTexture(gl.TEXTURE_2D, tex);
-		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, attrs.pixelBuf);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
-		gl.generateMipmap(gl.TEXTURE_2D);
-		gl.bindTexture(gl.TEXTURE_2D, null);
+		if (attrs.pixelBuf.length != attrs.width*attrs.height*4)
+			console.log("invalid tex size", imgName, "size", imgData.length);
+		else {
+			gl.bindTexture(gl.TEXTURE_2D, tex.glTex);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, attrs.width, attrs.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, attrs.pixelBuf);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+			gl.generateMipmap(gl.TEXTURE_2D);
+			gl.bindTexture(gl.TEXTURE_2D, null);
+			
+			console.log("mapres", tex.name, "loaded (intern)");
+			tex.loaded = true;
+		}
 	}
 
 	return tex;
@@ -784,8 +769,6 @@ tw.TileLayer = function(width, height, tiles, color, group) {
 	this.height = height;
 	this.tiles = tiles;
 	this.numTiles = this.renderTileNum();
-
-	console.log("tnum", this.numTiles)
 
 	this.color = new Float32Array([color[0]/255, color[1]/255, color[2]/255, color[3]/255]);
 	this.vertexFloatArray = new Float32Array(this.numTiles*12);
@@ -970,9 +953,12 @@ tw.TileLayer.prototype.initBuffers = function() {
 
 tw.TileLayer.prototype.render = function() {
 
+	if (!this.texture.loaded)
+		return; // we can't render without texture
+
 	// Enable texture
 	tw.sTexCoords(1);
-	tw.gl.bindTexture(tw.gl.TEXTURE_2D, this.glTex);
+	tw.gl.bindTexture(tw.gl.TEXTURE_2D, this.texture.glTex);
 
 	// Vertex colors are not needed
 	tw.sVertexColor(0);

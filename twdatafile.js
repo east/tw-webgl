@@ -91,7 +91,9 @@ TwDataFile.prototype.parse = function() {
 
 		// let's see what zlib.js can do :>
 		var inflate = new Zlib.Inflate(cData);
-		this.decData.push(inflate.decompress().buffer);
+		var plain = inflate.decompress();
+		var arrayBuf = plain.buffer.slice(0, plain.length);
+		this.decData.push(arrayBuf);
 	}
 
 	return true;
