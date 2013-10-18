@@ -25,7 +25,7 @@ tw.init = function(mapData) {
 
 	// Change background color of canvas to black
 	// to avoid white border artefacts
-	//tw.canvas.style.background = "#000000"
+	tw.canvas.style.background = "#000000"
 
 	try {
 		tw.gl = tw.canvas.getContext("webgl") || tw.canvas.getContext("experimental-webgl");
@@ -274,8 +274,7 @@ tw.parseMapLayerTiles = function(layerData) {
 	obj.height = d.int32();
 	obj.flags = d.uint32();
 	
-	//TODO: color
-	d.uint32(); d.uint32(); d.uint32(); d.uint32();
+	obj.color = [d.uint32()&0xff, d.uint32()&0xff, d.uint32()&0xff, d.uint32()&0xff]
 
 	obj.colorEnv = d.int32();
 	obj.colorEnvOffset = d.int32();
@@ -354,7 +353,7 @@ tw.Map = function(mapData) {
 		if (imgInfo.external) {
 			// load external texture
 			var url = imgName+".png";
-			glTex = tw.loadTexture(url);
+			glTex = tw.loadTexture({extern: true, imgUrl: url});
 			this.textures.push({ fileName: imgName, glTex: glTex, imgId: i });
 		} else {
 		
@@ -389,7 +388,7 @@ tw.Map = function(mapData) {
 				var tileData = dFile.getData(tileLayerInfo.data);
 				var tiles = tw.parseLayerTiles(tileData, tileLayerInfo.width*tileLayerInfo.height);
 				// add layer
-				grp.addTileLayer(tileLayerInfo.width, tileLayerInfo.height, tiles, tex);
+				grp.addTileLayer(tileLayerInfo.width, tileLayerInfo.height, tiles, tileLayerInfo.color, tex);
 
 			} else if(layerInfo.type == tw.LAYERTYPE_QUADS) {
 				var quadLayerInfo = tw.parseMapLayerQuads(layerItem.data);
@@ -603,8 +602,8 @@ tw.Map.Group.prototype.addQuadLayer = function(texture, quads) {
 	this.layers.push(new tw.QuadLayer(glTex, quads));*/
 }
 
-tw.Map.Group.prototype.addTileLayer = function(width, height, tiles, texture) {
-	var newLayer = new tw.TileLayer(width, height, tiles, undefined, this);
+tw.Map.Group.prototype.addTileLayer = function(width, height, tiles, color, texture) {
+	var newLayer = new tw.TileLayer(width, height, tiles, color, this);
 	newLayer.glTex = texture.glTex;
 	this.layers.push(newLayer);
 }
@@ -661,28 +660,37 @@ tw.Map.prototype.render = function() {
 	tw.gl.bindTexture(tw.gl.TEXTURE_2D, null);
 }
 
-tw.loadTexture = function(imgUrl) {
-	// LOAD TEXTURE
+tw.loadTexture = function(attrs) {
 	var tex = tw.gl.createTexture();
+	var gl = tw.gl;
 
-	tex.image = new Image();
-	tex.image.src = imgUrl;
+	if (attrs.extern) {
+		// load texture from image url
+		tex.image = new Image();
+		tex.image.src = attrs.imgUrl;
 
-	tex.image.onload = function(e) {
-		var gl = tw.gl;
+		tex.image.onload = function(e) {
+			console.log("loaded", attrs.imgUrl)
 
-		console.log("loaded", imgUrl)
+			gl.bindTexture(gl.TEXTURE_2D, tex);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tex.image);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+			gl.generateMipmap(gl.TEXTURE_2D);
+			gl.bindTexture(gl.TEXTURE_2D, null);
+		}
 
+		tex.image.onerror = function(e) {
+			console.log("couldn't load", attrs.imgUrl)
+		}
+	} else {
+		// load texture from pixelbuffer
 		gl.bindTexture(gl.TEXTURE_2D, tex);
-		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tex.image);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, attrs.pixelBuf);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
 		gl.generateMipmap(gl.TEXTURE_2D);
 		gl.bindTexture(gl.TEXTURE_2D, null);
-	}
-
-	tex.image.onerror = function(e) {
-		console.log("couldn't load", imgUrl)
 	}
 
 	return tex;
@@ -779,7 +787,7 @@ tw.TileLayer = function(width, height, tiles, color, group) {
 
 	console.log("tnum", this.numTiles)
 
-	this.color = new Float32Array(1.0, 1.0, 1.0, 1.0);//new Float32Array([color[0]/255, color[1]/255, color[2]/255, color[3]/255]);
+	this.color = new Float32Array([color[0]/255, color[1]/255, color[2]/255, color[3]/255]);
 	this.vertexFloatArray = new Float32Array(this.numTiles*12);
 	this.texCoordFloatArray = new Float32Array(this.numTiles*12);
 	this.vertexBuf = undefined;
@@ -988,6 +996,9 @@ tw.TileLayer.prototype.render = function() {
 
 	// Get old mvMat
 	mat4.copy(tw.mvMat, tw.tmpMat);
+
+	// keep textures disabled by default
+	tw.sTexCoords(0);
 }
 
 tw.vertexShader = " \
