@@ -21,7 +21,6 @@ var tw = {
 }
 
 tw.init = function(mapData) {
-	console.log("do init", mapData)
 	tw.canvas = document.getElementById("cnvs");
 
 	// Change background color of canvas to black
@@ -207,15 +206,6 @@ tw.getParams = function() {
 	return o;
 }
 
-// Build tiles from json
-tw.buildTiles = function(data, layerNum) {
-	var tiles = [];
-	for (var i = 0; i < data.tiles.length; i++)
-		tiles.push(new tw.MapTile(data.tiles[i], data.tileFlags[i]));
-	
-	return tiles;
-}
-
 tw.parseMapGroup = function(groupData) {
 	var obj = {}
 
@@ -298,6 +288,53 @@ tw.parseMapLayerTiles = function(layerData) {
 	return obj;
 }
 
+tw.parseLayerTiles = function(tileData, num) {
+
+	var tiles = []
+	var d = new DataView(tileData);
+	d.resetReader();
+
+
+	for (var i = 0; i < num; i++) {
+		tiles.push({ index: d.uint8(), flags: d.uint8() })
+		
+		// skip, reserved
+		d.uint8(); d.uint8();
+	}
+
+	return tiles;
+}
+
+
+tw.parseMapImage = function(layerData) {
+	var obj = {}
+
+	var d = new DataView(layerData);
+	d.resetReader();
+
+	obj.version = d.uint32();
+	obj.width = d.int32();
+	obj.height = d.int32();
+	obj.external = d.uint32();
+	obj.imageName = d.int32();
+	obj.imageData = d.int32();
+
+	return obj;
+}
+
+tw.getCString = function(buf) {
+	var len;
+
+	buf = new Uint8Array(buf);
+
+	for (len = 0; len < buf.byteLength; len++) {
+		if (buf[len] == 0)
+			break;
+	}
+
+	return String.fromCharCode.apply(null, buf.subarray(0, len));
+}
+
 tw.Map = function(mapData) {
 	this.textures = []; // loaded textures
 	this.groups = [];
@@ -307,15 +344,32 @@ tw.Map = function(mapData) {
 
 	var dFile = this.dataFile;
 
+	// map images
+	var imgsInfo = dFile.getType(tw.MAPITEMTYPE_IMAGE);
+	for (var i = 0; i < imgsInfo.num; i++) {
+		var imgItem = dFile.getItem(imgsInfo.start+i);
+		var imgInfo = tw.parseMapImage(imgItem.data);
+		var imgName = tw.getCString(dFile.getData(imgInfo.imageName));
+
+		if (imgInfo.external) {
+			// load external texture
+			var url = imgName+".png";
+			glTex = tw.loadTexture(url);
+			this.textures.push({ fileName: imgName, glTex: glTex, imgId: i });
+		} else {
+		
+		}
+	}
+
+	// groups, layers, tiles
 	var groupsInfo = dFile.getType(tw.MAPITEMTYPE_GROUP);
 
 	for (var g = 0; g < groupsInfo.num; g++) {
 		var groupItem = dFile.getItem(groupsInfo.start+g);
 		var groupInfo = tw.parseMapGroup(groupItem.data);
-
-		console.log(groupInfo);
-		
-		this.groups.push(new tw.Map.Group(this, groupInfo));
+	
+		var grp = new tw.Map.Group(this, groupInfo);
+		this.groups.push(grp);
 
 		var layersInfo = dFile.getType(tw.MAPITEMTYPE_LAYER);
 
@@ -325,6 +379,18 @@ tw.Map = function(mapData) {
 
 			if (layerInfo.type == tw.LAYERTYPE_TILES) {
 				var tileLayerInfo = tw.parseMapLayerTiles(layerItem.data);
+
+				if (tileLayerInfo.image == -1)
+					continue;
+
+				var tex = this.getTex(tileLayerInfo.image);
+
+				// load tiles
+				var tileData = dFile.getData(tileLayerInfo.data);
+				var tiles = tw.parseLayerTiles(tileData, tileLayerInfo.width*tileLayerInfo.height);
+				// add layer
+				grp.addTileLayer(tileLayerInfo.width, tileLayerInfo.height, tiles, tex);
+
 			} else if(layerInfo.type == tw.LAYERTYPE_QUADS) {
 				var quadLayerInfo = tw.parseMapLayerQuads(layerItem.data);
 			}
@@ -361,6 +427,13 @@ tw.Map = function(mapData) {
 	}*/
 }
 
+tw.Map.prototype.getTex = function(imgId) {
+	for (var i = 0; i < this.textures.length; i++) {
+		if (this.textures[i].imgId == imgId)
+			return this.textures[i];
+	}
+}
+
 tw.QuadLayer = function(glTex, quads) {
 	this.type = tw.LAYERTYPE_QUADS;
 	this.glTex = glTex;
@@ -387,7 +460,7 @@ tw.QuadLayer = function(glTex, quads) {
 }
 
 tw.QuadLayer.prototype.tick = function() {
-//	console.log(this.quads.length);
+
 	// Init buffers
 	for (var i = 0; i < this.quads.length; i++) {
 		var q = this.quads[i];
@@ -508,7 +581,7 @@ tw.Map.Group = function(map, info) {
 }
 
 tw.Map.Group.prototype.addQuadLayer = function(texture, quads) {
-	var glTex = undefined;
+	/*var glTex = undefined;
 
 	if (texture != "")
 	{
@@ -527,28 +600,12 @@ tw.Map.Group.prototype.addQuadLayer = function(texture, quads) {
 		}
 	}
 
-	this.layers.push(new tw.QuadLayer(glTex, quads));
+	this.layers.push(new tw.QuadLayer(glTex, quads));*/
 }
 
-tw.Map.Group.prototype.addTileLayer = function(width, height, tiles, texture, color) {
-	var glTex = undefined;
-
-	// Check wheter the texture is loaded
-	for (var i = 0; i < this.map.textures.length; i++)
-	{
-		if (this.map.textures[i].fileName == texture)
-			glTex = this.map.textures[i].texId;
-	}
-
-	if (!glTex)
-	{
-		// Texture not found, load it
-		glTex = tw.loadTexture(texture);
-		this.map.textures.push({ fileName: texture, glTex: glTex });
-	}
-
-	var newLayer = new tw.TileLayer(width, height, tw.buildTiles(tiles), color, this);
-	newLayer.glTex = glTex;
+tw.Map.Group.prototype.addTileLayer = function(width, height, tiles, texture) {
+	var newLayer = new tw.TileLayer(width, height, tiles, undefined, this);
+	newLayer.glTex = texture.glTex;
 	this.layers.push(newLayer);
 }
 
@@ -585,12 +642,9 @@ tw.Map.Group.prototype.render = function() {
 
 	this.initMapScreen();
 	tw.initPrjMat();
-		
+
 	for (var i = 0; i < this.layers.length; i++)
-	{
-		var layer = this.layers[i];
-		layer.render();
-	}
+		this.layers[i].render();
 }
 
 tw.Map.prototype.tick = function() {
@@ -601,9 +655,7 @@ tw.Map.prototype.tick = function() {
 tw.Map.prototype.render = function() {
 	// Render all groups
 	for (var i = 0; i < this.groups.length; i++)
-	{
 		this.groups[i].render();
-	}
 
 	// Unbind texture
 	tw.gl.bindTexture(tw.gl.TEXTURE_2D, null);
@@ -612,12 +664,14 @@ tw.Map.prototype.render = function() {
 tw.loadTexture = function(imgUrl) {
 	// LOAD TEXTURE
 	var tex = tw.gl.createTexture();
-	
+
 	tex.image = new Image();
 	tex.image.src = imgUrl;
 
-	tex.image.onload = function() {
+	tex.image.onload = function(e) {
 		var gl = tw.gl;
+
+		console.log("loaded", imgUrl)
 
 		gl.bindTexture(gl.TEXTURE_2D, tex);
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tex.image);
@@ -627,38 +681,24 @@ tw.loadTexture = function(imgUrl) {
 		gl.bindTexture(gl.TEXTURE_2D, null);
 	}
 
+	tex.image.onerror = function(e) {
+		console.log("couldn't load", imgUrl)
+	}
+
 	return tex;
 }
 
-tw.getJSON = function(url) {
-	var json = null;
-
-	$.ajax(
-		{
-			'async': false,
-			'global': false,
-			'url': url,
-			'dataType': "json",
-			'success': function(data) {
-				json = data;
-			}
-		}
-	);
-
-	return json;
-}
-
 window.requestAnimFrame = (function() {
-	if	(window.requestAnimationFrame)
-		return window.requestAnimationFrame;
-	if (window.webkit && window.webkit.RequestAnimationFrame)
-		return window.webkit.RequestAnimationFrame;
-	if (window.mozRequestAnimationFrame)
-		return window.mozRequestAnimationFrame;
-	
-	return function(cb) {
-				window.setTimeout(cb, 1000/60);
-			};
+		if	(window.requestAnimationFrame)
+			return window.requestAnimationFrame;
+		if (window.webkit && window.webkit.RequestAnimationFrame)
+			return window.webkit.RequestAnimationFrame;
+		if (window.mozRequestAnimationFrame)
+			return window.mozRequestAnimationFrame;
+
+		return function(cb) {
+			window.setTimeout(cb, 1000/60);
+		};
 })();
 
 tw.buildShader = function(str, type) {
@@ -684,7 +724,7 @@ tw.mainLoop = function() {
 	// Move camera
 	tw.cameraPos[0] += tw.mouseDownInc[0];
 	tw.cameraPos[1] += tw.mouseDownInc[1];
-	
+
 	tw.mouseDownInc[0] = 0;
 	tw.mouseDownInc[1] = 0;
 
@@ -710,7 +750,7 @@ tw.render = function() {
 	var gl = tw.gl;
 
 	tw.screenResize();	
-	
+
 	// Set viewport
 	tw.gl.viewportWidth = tw.canvas.width;
 	tw.gl.viewportHeight = tw.canvas.height;
@@ -721,18 +761,13 @@ tw.render = function() {
 	// reset matrices
 	mat4.identity(tw.mvMat);
 	mat4.identity(tw.prjMat);
-	
+
 	// enable texture 0
 	gl.activeTexture(gl.TEXTURE0);
 	gl.uniform1i(tw.stdShader.uSampler, 0);		
 
 	this.map.tick();
 	this.map.render();
-}
-
-tw.MapTile = function(index, flags) {
-	this.index = index;
-	this.flags = flags;
 }
 
 tw.TileLayer = function(width, height, tiles, color, group) {
@@ -742,7 +777,9 @@ tw.TileLayer = function(width, height, tiles, color, group) {
 	this.tiles = tiles;
 	this.numTiles = this.renderTileNum();
 
-	this.color = new Float32Array([color[0]/255, color[1]/255, color[2]/255, color[3]/255]);
+	console.log("tnum", this.numTiles)
+
+	this.color = new Float32Array(1.0, 1.0, 1.0, 1.0);//new Float32Array([color[0]/255, color[1]/255, color[2]/255, color[3]/255]);
 	this.vertexFloatArray = new Float32Array(this.numTiles*12);
 	this.texCoordFloatArray = new Float32Array(this.numTiles*12);
 	this.vertexBuf = undefined;
@@ -835,12 +872,12 @@ tw.TileLayer.prototype.initBuffers = function() {
 			];
 
 			this.vertexFloatArray.set(vertices, t*12);
-		
+
 			// Get subset offsets
 			//TODO: fix border artefacts
 			var tx = index%16;
 			var ty = Math.floor(index/16);
-			
+
 			var px0 = tx * (1024/16);
 			var py0 = ty * (1024/16);
 			var px1 = px0 + (1024/16)-1;
@@ -849,7 +886,7 @@ tw.TileLayer.prototype.initBuffers = function() {
 			var tmp;
 			var x0, x1, x2, x3;
 			var y0, y1, y2, y3;
-			
+
 			x0 = nudge + px0/1024 + frac;
 			x1 = nudge + px1/1024 - frac;
 			x2 = x1
@@ -908,7 +945,7 @@ tw.TileLayer.prototype.initBuffers = function() {
 		}
 	}
 
-	
+
 	// Init gl buffers
 	if (this.vertexBuf == undefined)
 	{
@@ -918,13 +955,13 @@ tw.TileLayer.prototype.initBuffers = function() {
 
 	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, this.vertexBuf);
 	tw.gl.bufferData(tw.gl.ARRAY_BUFFER, this.vertexFloatArray, tw.gl.STATIC_DRAW);
-	
+
 	tw.gl.bindBuffer(tw.gl.ARRAY_BUFFER, this.texCoordBuf);
 	tw.gl.bufferData(tw.gl.ARRAY_BUFFER, this.texCoordFloatArray, tw.gl.STATIC_DRAW);
 }
 
 tw.TileLayer.prototype.render = function() {
-	
+
 	// Enable texture
 	tw.sTexCoords(1);
 	tw.gl.bindTexture(tw.gl.TEXTURE_2D, this.glTex);
