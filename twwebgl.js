@@ -287,6 +287,46 @@ tw.parseMapLayerTiles = function(layerData) {
 	return obj;
 }
 
+tw.parseLayerQuads = function(layerData, num) {
+	var quads = []
+
+	var d = new DataView(layerData);
+	d.resetReader();
+
+	for (var q = 0; q < num; q++) {
+		var obj = {};
+		quads.push(obj);
+
+		obj.points = []
+		for (var i = 0; i < 5; i++) {
+			obj.points.push({x: d.int32(), y: d.int32()});
+		}
+
+		obj.colors = []
+		for (var i = 0; i < 4; i++) {
+			obj.colors.push({
+				r: d.uint32()&0xff,
+				g: d.uint32()&0xff,
+				b: d.uint32()&0xff,
+				a: d.uint32()&0xff
+			});
+		}
+
+		obj.texCoords= []
+		for (var i = 0; i < 4; i++) {
+			obj.texCoords.push({x: d.int32(), y: d.int32()});
+		}
+
+		obj.posEnv = d.int32();
+		obj.posEnvOffset = d.int32();
+		obj.colorEnv = d.int32();
+		obj.colorEnvOffset = d.int32();
+
+	}
+
+	return quads;
+}
+
 tw.parseLayerTiles = function(tileData, num) {
 
 	var tiles = []
@@ -353,11 +393,17 @@ tw.Map = function(mapData) {
 		if (imgInfo.external) {
 			// load external texture
 			var url = imgName+".png";
-			this.textures.push(tw.loadTexture({extern: true, imgUrl: url, name: imgName, imgId: i}));
+			var tex = tw.loadTexture({extern: true, imgUrl: url, name: imgName, imgId: i, width: imgInfo.width, height: imgInfo.height})
+
+			if (tex != undefined)
+				this.textures.push(tex);
 		} else {
 			
 			var imgData = new Uint8Array(dFile.getData(imgInfo.imageData));
-			this.textures.push(tw.loadTexture({extern: false, name: imgName, imgId: i, width: imgInfo.width, height: imgInfo.height, pixelBuf: imgData}));
+			var tex = tw.loadTexture({extern: false, name: imgName, imgId: i, width: imgInfo.width, height: imgInfo.height, pixelBuf: imgData})
+
+			if (tex != undefined)
+				this.textures.push(tex);
 		}
 	}
 
@@ -385,14 +431,29 @@ tw.Map = function(mapData) {
 
 				var tex = this.getTex(tileLayerInfo.image);
 
-				// load tiles
-				var tileData = dFile.getData(tileLayerInfo.data);
-				var tiles = tw.parseLayerTiles(tileData, tileLayerInfo.width*tileLayerInfo.height);
-				// add layer
-				grp.addTileLayer(tileLayerInfo.width, tileLayerInfo.height, tiles, tileLayerInfo.color, tex);
+				if (tex == undefined)
+					console.log("couldn't find texture", quadLayerInfo.image);
+				else {
+					// load tiles
+					var tileData = dFile.getData(tileLayerInfo.data);
+					var tiles = tw.parseLayerTiles(tileData, tileLayerInfo.width*tileLayerInfo.height);
+					// add layer
+					grp.addTileLayer(tileLayerInfo.width, tileLayerInfo.height, tiles, tileLayerInfo.color, tex);
+				}
 
 			} else if(layerInfo.type == tw.LAYERTYPE_QUADS) {
 				var quadLayerInfo = tw.parseMapLayerQuads(layerItem.data);
+
+				var tex;
+				if (quadLayerInfo.image != -1)
+					tex = this.getTex(quadLayerInfo.image);
+
+				var quadData = dFile.getData(quadLayerInfo.data);
+				
+				var quads = tw.parseLayerQuads(quadData, quadLayerInfo.numQuads);
+				var tex = this.getTex(quadLayerInfo.image);
+
+				grp.addQuadLayer(tex, quads);
 			}
 		}
 
@@ -406,9 +467,9 @@ tw.Map.prototype.getTex = function(imgId) {
 	}
 }
 
-tw.QuadLayer = function(glTex, quads) {
+tw.QuadLayer = function(texture, quads) {
 	this.type = tw.LAYERTYPE_QUADS;
-	this.glTex = glTex;
+	this.texture = texture;
 	this.quads = [];
 
 	// vertices buffer for all quads of this layer
@@ -437,10 +498,10 @@ tw.QuadLayer.prototype.tick = function() {
 	for (var i = 0; i < this.quads.length; i++) {
 		var q = this.quads[i];
 		var vertices = [
-			q.points[0][0]/1024, q.points[0][1]/1024,
-			q.points[2][0]/1024, q.points[2][1]/1024,
-			q.points[3][0]/1024, q.points[3][1]/1024,
-			q.points[1][0]/1024, q.points[1][1]/1024
+			q.points[0].x/1024, q.points[0].y/1024,
+			q.points[2].x/1024, q.points[2].y/1024,
+			q.points[3].x/1024, q.points[3].y/1024,
+			q.points[1].x/1024, q.points[1].y/1024
 		];
 
 		this.vBuf.set(vertices, i*8);
@@ -452,11 +513,11 @@ tw.QuadLayer.prototype.tick = function() {
 		var colors = [
 
 
-			q.colors[0][0]/255, q.colors[0][1]/255, q.colors[0][2]/255, q.colors[0][3]/255,
-			q.colors[2][0]/255, q.colors[2][1]/255, q.colors[2][2]/255, q.colors[2][3]/255,
+			q.colors[0].r/255, q.colors[0].g/255, q.colors[0].b/255, q.colors[0].a/255,
+			q.colors[2].r/255, q.colors[2].g/255, q.colors[2].b/255, q.colors[2].a/255,
 
-			q.colors[3][0]/255, q.colors[3][1]/255, q.colors[3][2]/255, q.colors[3][3]/255,
-			q.colors[1][0]/255, q.colors[1][1]/255, q.colors[1][2]/255, q.colors[1][3]/255,
+			q.colors[3].r/255, q.colors[3].g/255, q.colors[3].b/255, q.colors[3].a/255,
+			q.colors[1].r/255, q.colors[1].g/255, q.colors[1].b/255, q.colors[1].a/255,
 
 		];
 		
@@ -468,10 +529,10 @@ tw.QuadLayer.prototype.tick = function() {
 		var q = this.quads[i];
 
 		var coords = [
-			q.texcoords[0][0]/1024, q.texcoords[0][1]/1024,
-			q.texcoords[2][0]/1024, q.texcoords[2][1]/1024,
-			q.texcoords[3][0]/1024, q.texcoords[3][1]/1024,
-			q.texcoords[1][0]/1024, q.texcoords[1][1]/1024,
+			q.texCoords[0].x/1024, q.texCoords[0].y/1024,
+			q.texCoords[2].x/1024, q.texCoords[2].y/1024,
+			q.texCoords[3].x/1024, q.texCoords[3].y/1024,
+			q.texCoords[1].x/1024, q.texCoords[1].y/1024,
 		];
 
 		this.tBuf.set(coords, i*8);
@@ -512,15 +573,15 @@ tw.renderLine = function(x1, y1, x2, y2) {
 }
 
 tw.QuadLayer.prototype.render = function() {
-	
-	// Enable texture
-	if (this.glTex)
-	{
+
+	if (this.texture == undefined)
+		tw.sTexCoords(0); //textureless quad
+	else if (!this.texture.loaded)
+		return; // texture not loaded
+	else {
 		tw.sTexCoords(1);
-		tw.gl.bindTexture(tw.gl.TEXTURE_2D, this.glTex);
+		tw.gl.bindTexture(tw.gl.TEXTURE_2D, this.texture.glTex);
 	}
-	else
-		tw.sTexCoords(0);
 
 	// Enable vertex colors
 	tw.sVertexColor(1);
@@ -541,6 +602,9 @@ tw.QuadLayer.prototype.render = function() {
 	
 	tw.gl.bindBuffer(tw.gl.ELEMENT_ARRAY_BUFFER, this.glIndexBuf);
 	tw.gl.drawElements(tw.gl.TRIANGLES, this.quads.length*6, tw.gl.UNSIGNED_SHORT, 0);
+
+	// keep textures disabled by default
+	tw.sTexCoords(0);
 }
 
 tw.Map.Group = function(map, info) {
@@ -553,26 +617,7 @@ tw.Map.Group = function(map, info) {
 }
 
 tw.Map.Group.prototype.addQuadLayer = function(texture, quads) {
-	/*var glTex = undefined;
-
-	if (texture != "")
-	{
-		// Check wheter the texture is loaded
-		for (var i = 0; i < this.map.textures.length; i++)
-		{
-			if (this.map.textures[i].fileName == texture)
-				glTex = this.map.textures[i].glTex;
-		}
-
-		if (!glTex)
-		{
-			// Texture not found, load it
-			glTex = tw.loadTexture(texture);
-			this.map.textures.push({ fileName: texture, glTex: glTex });
-		}
-	}
-
-	this.layers.push(new tw.QuadLayer(glTex, quads));*/
+	this.layers.push(new tw.QuadLayer(texture, quads));
 }
 
 tw.Map.Group.prototype.addTileLayer = function(width, height, tiles, color, texture) {
@@ -637,6 +682,12 @@ tw.loadTexture = function(attrs) {
 	var gl = tw.gl;
 
 	var tex = { name: attrs.name, imgId: attrs.imgId, width: attrs.width, height: attrs.height, loaded: false }
+
+	/*if (attrs.width != attrs.height)
+	{
+		console.log("tex", attrs.name, "invalid")
+		return undefined;
+	}*/
 
 	tex.glTex = tw.gl.createTexture();
 
