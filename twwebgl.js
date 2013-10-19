@@ -413,7 +413,7 @@ tw.Map = function(mapData) {
 	for (var g = 0; g < groupsInfo.num; g++) {
 		var groupItem = dFile.getItem(groupsInfo.start+g);
 		var groupInfo = tw.parseMapGroup(groupItem.data);
-	
+
 		var grp = new tw.Map.Group(this, groupInfo);
 		this.groups.push(grp);
 
@@ -669,6 +669,34 @@ tw.Map.prototype.tick = function() {
 		this.groups[i].tick();
 }
 
+// test function
+tw.buildImage = function(width, height, buf) {
+	var cnvs = document.createElement("canvas");
+
+	var ctx = cnvs.getContext("2d");
+
+
+
+	var imgData = ctx.createImageData(width, height);
+
+
+	var len = width*height;
+	for (var i = 0; i < len*4; i++) {
+		imgData.data[i] = buf[i];
+	}
+
+	cnvs.width = width;
+	cnvs.height = height;
+
+
+	ctx.putImageData(imgData, 0, 0);
+
+	// export as png
+	var img = new Image();
+	img.src = cnvs.toDataURL();
+	return img;
+}
+
 tw.Map.prototype.render = function() {
 	// Render all groups
 	for (var i = 0; i < this.groups.length; i++)
@@ -678,16 +706,22 @@ tw.Map.prototype.render = function() {
 	tw.gl.bindTexture(tw.gl.TEXTURE_2D, null);
 }
 
+tw.isPowerOfTwo = function (x) {
+	while (((x & 1) == 0) && x > 1)
+		x >>= 1;
+	return (x == 1);
+}
+
 tw.loadTexture = function(attrs) {
 	var gl = tw.gl;
 
 	var tex = { name: attrs.name, imgId: attrs.imgId, width: attrs.width, height: attrs.height, loaded: false }
 
-	var useMipmaps = true;
+	var powerOfTwo = true;
 
-	if (attrs.width != attrs.height) {
+	if (!tw.isPowerOfTwo(attrs.width) || !tw.isPowerOfTwo(attrs.height)) {
 		console.log("tex", attrs.name, "not power of 2")
-		useMipmaps = false;
+		powerOfTwo = false;
 	}
 
 	tex.glTex = tw.gl.createTexture();
@@ -700,13 +734,16 @@ tw.loadTexture = function(attrs) {
 		tex.image.onload = function(e) {
 			gl.bindTexture(gl.TEXTURE_2D, tex.glTex);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tex.image);
-			if (useMipmaps) {
+			if (powerOfTwo) {
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
 				gl.generateMipmap(gl.TEXTURE_2D);
 			} else {
+				// temporary fix for not power 2 images
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 			}
 
 			gl.bindTexture(gl.TEXTURE_2D, null);
@@ -727,13 +764,16 @@ tw.loadTexture = function(attrs) {
 			gl.bindTexture(gl.TEXTURE_2D, tex.glTex);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, attrs.width, attrs.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, attrs.pixelBuf);
 
-			if (useMipmaps) {
+			if (powerOfTwo) {
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
 				gl.generateMipmap(gl.TEXTURE_2D);
 			} else {
+				// temporary fix for not power 2 images
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 			}
 
 			gl.bindTexture(gl.TEXTURE_2D, null);
@@ -773,8 +813,6 @@ tw.buildShader = function(str, type) {
 }
 
 tw.mainLoop = function() {
-	requestAnimFrame(tw.mainLoop);
-
 	// Transform mouse coords to world coords
 	tw.mouseDownInc[0] = tw.mouseDownInc[0]/tw.canvas.width*tw.worldView[0]*tw.aspect / tw.cameraZoom;
 	tw.mouseDownInc[1] = tw.mouseDownInc[1]/tw.canvas.height*tw.worldView[1] / tw.cameraZoom;
@@ -790,6 +828,9 @@ tw.mainLoop = function() {
 
 	// Reset zoomed state
 	tw.zoomed = false;
+
+
+	requestAnimFrame(tw.mainLoop);
 }
 
 tw.setMatUniforms = function() {
@@ -798,8 +839,8 @@ tw.setMatUniforms = function() {
 }
 
 tw.screenResize = function() {
-	tw.canvas.width = 1024;
-	tw.canvas.height = 480;
+	tw.canvas.width = window.innerWidth;
+	tw.canvas.height = window.innerHeight;
 
 	tw.aspect = tw.canvas.width / tw.canvas.height;
 }
