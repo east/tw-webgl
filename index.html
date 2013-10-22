@@ -21,17 +21,25 @@
 		<canvas id='cnvs'></canvas>
 
 		<script>
-			$(document).ready(
-				$("#fileSelect").on('change', function(evt) {
-					var file = evt.target.files[0];
+			$(document).ready(function() {
 
-					var reader = new FileReader();
-					reader.readAsArrayBuffer(file);
+					console.log(tw.getParams().map)
+					var params = tw.getParams();
+					if (params.map) {
+						tw.init({ mapUrl: params.map })
+					} else {
+						$("#fileSelect").on('change', function(evt) {
+							var file = evt.target.files[0];
 
-					reader.onloadend = function(file) {
-						tw.init(file.target.result)
+							var reader = new FileReader();
+							reader.readAsArrayBuffer(file);
+
+							reader.onloadend = function(file) {
+								tw.init({ mapData: file.target.result})
+							}
+						})
 					}
-				})
+				}
 			);
 		</script>
 	</body>

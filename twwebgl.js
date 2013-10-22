@@ -20,7 +20,7 @@ var tw = {
 	MAPITEMTYPE_ENVPOINTS:	6,
 }
 
-tw.init = function(mapData) {
+tw.init = function(attrs) {
 	tw.canvas = document.getElementById("cnvs");
 
 	// Change background color of canvas to black
@@ -150,9 +150,24 @@ tw.init = function(mapData) {
 
 	tw.zoomed = false
 
-	this.map = new tw.Map(mapData);
+	var me = this;
 
-	tw.mainLoop();
+	if (attrs.mapData) {
+		this.map = new tw.Map(attrs.mapData);
+		tw.mainLoop();
+	} else if(attrs.mapUrl) {
+		var req = new XMLHttpRequest();
+		req.open("GET", attrs.mapUrl, true);
+		req.responseType = "arraybuffer";
+
+		req.onload = function(evt) {
+			me.map = new tw.Map(evt.target.response);
+			tw.mainLoop();
+		}
+		
+		req.send(null);
+		console.log(req)
+	}
 }
 
 // Enable / Disable shader flags
