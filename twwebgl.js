@@ -653,8 +653,12 @@ tw.Map.Group.prototype.initMapScreen = function() {
 	var cx = tw.cameraPos[0]*(this.paraX/100);
 	var cy = tw.cameraPos[1]*(this.paraY/100);
 
-	width *= 1/tw.cameraZoom;
-	height *= 1/tw.cameraZoom;
+	var zoom = tw.cameraZoom;
+	if (this.paraX === 0 && this.paraY === 0) {
+		zoom = 4; // not sure about this constant but seems to work
+	}
+	width *= 1 / zoom;
+	height *= 1 / zoom;
 
 	var p1 = this.offsX+cx-width/2;
 	var p2 = this.offsY+cy-height/2;
